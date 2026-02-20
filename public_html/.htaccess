@@ -1,0 +1,59 @@
+# .htaccess - Für schönere URLs im Gipfeli-Koordinator
+# Diese Datei ist optional und kann bei Bedarf verwendet werden
+
+# Aktiviere Rewriting Engine
+RewriteEngine On
+Options -Indexes
+
+# API-Anfragen an index.php weiterleiten
+RewriteRule ^api/(.*)$ index.php?api=1&endpoint=$1 [QSA,L]
+
+# Direkten Zugriff auf interne Seiten-Dateien blockieren
+RewriteRule ^pages/.*\.php$ - [F,L,NC]
+
+# Setze PHP-Fehlerberichterstattungsebene
+php_value error_reporting E_ALL
+php_flag display_errors off
+php_flag log_errors on
+php_value error_log logs/php_errors.log
+
+# Setze Standardzeichensatz
+AddDefaultCharset UTF-8
+
+# Verbiete Zugriff auf sensible Dateien/Artefakte
+<FilesMatch "^(config\.php|ExampleConfig\.php|setup(\..*)?|.*\.(zip|sql|bak|old|log|ini|env|dist))$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Versteckte Dateien schützen (.env, .git, ...)
+<FilesMatch "^\.">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Komprimierung für bessere Performance aktivieren
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json
+</IfModule>
+
+# Caching für statische Inhalte
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 week"
+    ExpiresByType application/javascript "access plus 1 week"
+    ExpiresByType image/jpg "access plus 1 month"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+</IfModule>
