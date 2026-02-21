@@ -65,28 +65,35 @@ $config = [
     
     // Feature-Einstellungen
     'allow_multiple_entries' => true,                // Erlaube mehrere Einträge pro Tag
-    'show_multiple_warning' => true                  // Zeige Warnung bei mehreren Einträgen
+    'show_multiple_warning' => true,                 // Zeige Warnung bei mehreren Einträgen
+    'debug_mode' => false                            // Schreibt zusätzliche Debug-Logs ins error.log
 ];
 
 // Standardrolle für neue Benutzer
 $defaultRole = 'user';
 
-// Branding-Einstellungen aus der Datenbank laden, falls vorhanden
+// Branding- und SMTP-Einstellungen aus der Datenbank laden, falls vorhanden
 function loadBrandingFromDatabase() {
     global $config;
     
     try {
         $pdo = connectDB();
+        if (!$pdo instanceof PDO) {
+            return;
+        }
         // Prüfen ob die Tabelle existiert
         $stmt = $pdo->query("SHOW TABLES LIKE 'app_config'");
         if ($stmt->rowCount() > 0) {
-            $stmt = $pdo->query("SELECT name, value FROM app_config WHERE category = 'branding'");
+            $stmt = $pdo->query("SELECT category, name, value FROM app_config WHERE category IN ('branding', 'smtp', 'system')");
             while ($row = $stmt->fetch()) {
-                // Bei booleschen Werten die richtige Konvertierung durchführen
-                if ($row['value'] === '0' || $row['value'] === '1') {
-                    $config[$row['name']] = (bool)$row['value'];
+                $name = $row['name'];
+                $value = $row['value'];
+                if ($name === 'allow_multiple_entries' || $name === 'show_multiple_warning' || $name === 'debug_mode') {
+                    $config[$name] = ((string)$value === '1');
+                } elseif ($name === 'mail_port') {
+                    $config[$name] = (int)$value;
                 } else {
-                    $config[$row['name']] = $row['value'];
+                    $config[$name] = $value;
                 }
             }
         }
@@ -99,6 +106,26 @@ function loadBrandingFromDatabase() {
 // Lade Konfiguration außerhalb der Webroot
 if (is_file(APP_CONFIG_FILE)) {
     include APP_CONFIG_FILE;
+}
+
+function isDebugModeEnabled() {
+    global $config;
+    $value = $config['debug_mode'] ?? false;
+    if (is_bool($value)) {
+        return $value;
+    }
+    if (is_int($value)) {
+        return $value === 1;
+    }
+    $normalized = strtolower(trim((string)$value));
+    return in_array($normalized, ['1', 'true', 'on', 'yes'], true);
+}
+
+function debugLog($message) {
+    if (!isDebugModeEnabled()) {
+        return;
+    }
+    error_log((string)$message);
 }
 // Datenbankverbindung herstellen
 function connectDB() {
@@ -114,7 +141,8 @@ function connectDB() {
         return $pdo;
     } catch (PDOException $e) {
         // Leitet zur Installation weiter, wenn die Datenbank nicht erreichbar ist
-        if (!strpos($_SERVER['REQUEST_URI'], 'setup.php')) {
+        if (strpos((string)($_SERVER['REQUEST_URI'] ?? ''), 'setup.php') === false
+            && is_file(APP_ROOT . DIRECTORY_SEPARATOR . 'setup.php')) {
             header('Location: setup.php');
             exit;
         }
@@ -134,7 +162,15 @@ function isLoggedIn() {
 
 // Prüfen, ob der angemeldete Benutzer ein Admin ist
 function isAdmin() {
-    return isLoggedIn() && isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin';
+    return isLoggedIn()
+        && isset($_SESSION['user_role'])
+        && in_array($_SESSION['user_role'], ['admin', 'super_admin'], true);
+}
+
+function isSuperAdmin() {
+    return isLoggedIn()
+        && isset($_SESSION['user_role'])
+        && $_SESSION['user_role'] === 'super_admin';
 }
 
 function getCsrfToken() {
@@ -189,6 +225,18 @@ function validatePasswordPolicy($password) {
     }
 
     return null;
+}
+
+function normalizeEmailAddress($email) {
+    $normalized = strtolower(trim((string)$email));
+    if ($normalized === '' || strlen($normalized) > 254) {
+        return null;
+    }
+    return filter_var($normalized, FILTER_VALIDATE_EMAIL) ? $normalized : null;
+}
+
+function getAllowedRoleValues() {
+    return ['user', 'admin', 'super_admin'];
 }
 
 function getRequestHeadersSafe() {
@@ -271,36 +319,80 @@ function consumeRateLimit($action, $maxAttempts, $windowSeconds, $identifier = '
 
 // Benutzer-Authentifizierung
 function authenticateUser($email, $password) {
+    $email = normalizeEmailAddress($email);
+    if ($email === null || !is_string($password) || $password === '') {
+        return ['success' => false, 'reason' => 'invalid'];
+    }
+
     try {
         $pdo = connectDB();
         $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ?');
         $stmt->execute([$email]);
         $user = $stmt->fetch();
-        
-        if ($user && password_verify($password, $user['password'])) {
+
+        if (!$user) {
+            return ['success' => false, 'reason' => 'invalid'];
+        }
+        if (isset($user['is_active']) && (int)$user['is_active'] !== 1) {
+            return ['success' => false, 'reason' => 'inactive'];
+        }
+
+        if (password_verify($password, $user['password'])) {
             // Passwort korrekt, Session setzen
             session_regenerate_id(true);
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['user_email'] = $user['email'];
             $_SESSION['user_name'] = $user['name'];
             $_SESSION['user_role'] = $user['role'];
+
+            $touchStmt = $pdo->prepare('UPDATE users SET last_active_at = NOW() WHERE id = ?');
+            $touchStmt->execute([(int)$user['id']]);
+            $_SESSION['last_activity_touch'] = time();
             
             // Audit-Log: Login
             addAuditLog('login', "Benutzer hat sich angemeldet");
             
-            return true;
+            return ['success' => true];
         }
-        return false;
+        return ['success' => false, 'reason' => 'invalid'];
     } catch (PDOException $e) {
-        return false;
+        return ['success' => false, 'reason' => 'invalid'];
+    }
+}
+
+function touchCurrentUserActivity() {
+    if (!isLoggedIn()) {
+        return;
+    }
+    $now = time();
+    if (isset($_SESSION['last_activity_touch']) && ($now - (int)$_SESSION['last_activity_touch']) < 300) {
+        return;
+    }
+    try {
+        $pdo = connectDB();
+        if (!$pdo instanceof PDO) {
+            return;
+        }
+        $stmt = $pdo->prepare('UPDATE users SET last_active_at = NOW() WHERE id = ?');
+        $stmt->execute([(int)$_SESSION['user_id']]);
+        $_SESSION['last_activity_touch'] = $now;
+    } catch (PDOException $e) {
+        // no-op
     }
 }
 
 // Überprüfen, ob die E-Mail-Domain erlaubt ist
 function isAllowedEmailDomain($email) {
     global $config;
-    $domain = strtolower(substr(strrchr($email, "@"), 1));
-    $allowedDomains = array_map('strtolower', $config['allowed_domains']);
+    $normalizedEmail = normalizeEmailAddress($email);
+    if ($normalizedEmail === null) {
+        return false;
+    }
+    $domain = strtolower(substr(strrchr($normalizedEmail, "@"), 1));
+    $allowedDomains = array_values(array_filter(array_map('strtolower', (array)($config['allowed_domains'] ?? []))));
+    if (empty($allowedDomains)) {
+        return true;
+    }
     return in_array($domain, $allowedDomains, true);
 }
 
@@ -309,17 +401,113 @@ function generateToken($length = 32) {
     return bin2hex(random_bytes($length / 2));
 }
 
+function logSmtpEvent($status, array $context = []) {
+    $dir = APP_DATA_DIR . DIRECTORY_SEPARATOR . 'logs';
+    if (!is_dir($dir) && !@mkdir($dir, 0750, true) && !is_dir($dir)) {
+        return;
+    }
+
+    $entry = [
+        'timestamp' => date('c'),
+        'status' => $status,
+        'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+        'user_id' => $_SESSION['user_id'] ?? null,
+        'context' => $context
+    ];
+
+    @file_put_contents(
+        $dir . DIRECTORY_SEPARATOR . 'smtp.log',
+        json_encode($entry, JSON_UNESCAPED_UNICODE) . PHP_EOL,
+        FILE_APPEND | LOCK_EX
+    );
+}
+
+function getSmtpLogEntries($limit = 200) {
+    $file = APP_DATA_DIR . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'smtp.log';
+    if (!is_file($file)) {
+        return [];
+    }
+
+    $lines = @file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (!is_array($lines)) {
+        return [];
+    }
+
+    $lines = array_reverse($lines);
+    if ($limit > 0) {
+        $lines = array_slice($lines, 0, (int)$limit);
+    }
+
+    $entries = [];
+    foreach ($lines as $line) {
+        $decoded = json_decode((string)$line, true);
+        if (is_array($decoded)) {
+            $entries[] = $decoded;
+        } else {
+            $entries[] = ['timestamp' => null, 'status' => 'raw', 'context' => ['line' => (string)$line]];
+        }
+    }
+    return $entries;
+}
+
+function ensureAppConfigTable(PDO $pdo) {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `app_config` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `category` VARCHAR(50) NOT NULL,
+        `name` VARCHAR(50) NOT NULL,
+        `value` TEXT,
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY (`category`, `name`)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+}
+
+function getAppConfigCategory(PDO $pdo, $category) {
+    ensureAppConfigTable($pdo);
+    $stmt = $pdo->prepare("SELECT name, value FROM app_config WHERE category = ?");
+    $stmt->execute([(string)$category]);
+    $settings = [];
+    while ($row = $stmt->fetch()) {
+        $settings[$row['name']] = $row['value'];
+    }
+    return $settings;
+}
+
+function saveAppConfigCategory(PDO $pdo, $category, array $settings) {
+    ensureAppConfigTable($pdo);
+    $existing = getAppConfigCategory($pdo, $category);
+    foreach ($settings as $name => $value) {
+        if (isset($existing[$name])) {
+            $stmt = $pdo->prepare("UPDATE app_config SET value = ? WHERE category = ? AND name = ?");
+            $stmt->execute([(string)$value, (string)$category, (string)$name]);
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO app_config (category, name, value) VALUES (?, ?, ?)");
+            $stmt->execute([(string)$category, (string)$name, (string)$value]);
+        }
+    }
+}
+
 // E-Mail senden
 function sendEmail($to, $subject, $body, $isHTML = true) {
     global $config;
+
+    $normalizedTo = normalizeEmailAddress($to);
+    if ($normalizedTo === null) {
+        logSmtpEvent('invalid_recipient', ['to' => (string)$to, 'subject' => (string)$subject]);
+        return false;
+    }
     
     // Prüfen, ob die Mail-Konfiguration vollständig ist
-    if (empty($config['mail_host']) || empty($config['mail_user']) || empty($config['mail_pass'])) {
+    if (empty($config['mail_host']) || empty($config['mail_user']) || empty($config['mail_pass']) || empty($config['mail_from'])) {
+        logSmtpEvent('missing_config', [
+            'to' => $normalizedTo,
+            'subject' => (string)$subject
+        ]);
         return false;
     }
     
     // App-Name für Absender korrekt verwenden
-    $mailFromName = $config['app_name'] ?? 'Gipfeli-Koordinator';
+    $mailFromName = $config['mail_name'] ?? ($config['app_name'] ?? 'Gipfeli-Koordinator');
     
     // PHPMailer verwenden, falls verfügbar
     if (class_exists('PHPMailer\PHPMailer\PHPMailer')) {
@@ -340,7 +528,7 @@ function sendEmail($to, $subject, $body, $isHTML = true) {
             
             // Recipients
             $mail->setFrom($config['mail_from'], $mailFromName);
-            $mail->addAddress($to);
+            $mail->addAddress($normalizedTo);
             
             // Content
             $mail->isHTML($isHTML);
@@ -348,8 +536,19 @@ function sendEmail($to, $subject, $body, $isHTML = true) {
             $mail->Body = $body;
             
             $mail->send();
+            logSmtpEvent('sent', [
+                'transport' => 'smtp_phpmailer',
+                'to' => $normalizedTo,
+                'subject' => (string)$subject
+            ]);
             return true;
         } catch (Exception $e) {
+            logSmtpEvent('error', [
+                'transport' => 'smtp_phpmailer',
+                'to' => $normalizedTo,
+                'subject' => (string)$subject,
+                'error' => $e->getMessage()
+            ]);
             return false;
         }
     } else {
@@ -360,8 +559,13 @@ function sendEmail($to, $subject, $body, $isHTML = true) {
             $headers .= "MIME-Version: 1.0\r\n";
             $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
         }
-        
-        return mail($to, $subject, $body, $headers);
+        $sent = mail($normalizedTo, $subject, $body, $headers);
+        logSmtpEvent($sent ? 'sent' : 'error', [
+            'transport' => 'mail_fallback',
+            'to' => $normalizedTo,
+            'subject' => (string)$subject
+        ]);
+        return $sent;
     }
 }
 // Benachrichtigung an alle Benutzer senden
@@ -549,7 +753,7 @@ function getGipfeliStats() {
 function getAllUsers() {
     try {
         $pdo = connectDB();
-        $stmt = $pdo->query('SELECT id, name, email, role, created_at FROM users ORDER BY name');
+        $stmt = $pdo->query('SELECT id, name, email, role, is_active, last_active_at, created_at FROM users ORDER BY name');
         return ['users' => $stmt->fetchAll()];
     } catch (PDOException $e) {
         return ['error' => 'Interner Datenbankfehler'];
@@ -564,20 +768,92 @@ function updateUser($data) {
     
     try {
         $pdo = connectDB();
+        $userId = (int)$data['id'];
+        if ($userId <= 0) {
+            return ['error' => 'Ungültige Benutzer-ID'];
+        }
+
+        $stmt = $pdo->prepare('SELECT id, name, email, role, is_active FROM users WHERE id = ?');
+        $stmt->execute([$userId]);
+        $targetUser = $stmt->fetch();
+        if (!$targetUser) {
+            return ['error' => 'Benutzer nicht gefunden'];
+        }
+
+        if ($targetUser['role'] === 'super_admin' && !isSuperAdmin()) {
+            return ['error' => 'Super-Admin kann nur vom Super-Admin bearbeitet werden'];
+        }
         
         $updates = [];
         $params = [];
         
         // Name aktualisieren
         if (isset($data['name'])) {
+            $name = trim((string)$data['name']);
+            if ($name === '' || strlen($name) > 255) {
+                return ['error' => 'Ungültiger Name'];
+            }
             $updates[] = 'name = ?';
-            $params[] = $data['name'];
+            $params[] = $name;
+        }
+
+        // E-Mail aktualisieren
+        if (isset($data['email'])) {
+            $email = normalizeEmailAddress($data['email']);
+            if ($email === null) {
+                return ['error' => 'Ungültige E-Mail-Adresse'];
+            }
+            $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ? AND id != ?');
+            $stmt->execute([$email, $userId]);
+            if ($stmt->fetch()) {
+                return ['error' => 'Diese E-Mail ist bereits vergeben'];
+            }
+            $updates[] = 'email = ?';
+            $params[] = $email;
         }
         
         // Rolle aktualisieren
         if (isset($data['role'])) {
+            $role = (string)$data['role'];
+            if (!in_array($role, getAllowedRoleValues(), true)) {
+                return ['error' => 'Ungültige Rolle'];
+            }
+            if ($role === 'super_admin' && !isSuperAdmin()) {
+                return ['error' => 'Nur Super-Admin darf Super-Admin vergeben'];
+            }
+            if ($targetUser['role'] === 'super_admin' && $role !== 'super_admin') {
+                $countStmt = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'super_admin'");
+                $superAdminCount = (int)$countStmt->fetchColumn();
+                if ($superAdminCount <= 1) {
+                    return ['error' => 'Der letzte Super-Admin kann nicht herabgestuft werden'];
+                }
+            }
             $updates[] = 'role = ?';
-            $params[] = $data['role'];
+            $params[] = $role;
+        }
+
+        // Aktiv-Status aktualisieren
+        if (array_key_exists('is_active', $data)) {
+            $isActive = ((int)$data['is_active'] === 1) ? 1 : 0;
+            if ($userId === (int)$_SESSION['user_id'] && $isActive === 0) {
+                return ['error' => 'Du kannst deinen eigenen Benutzer nicht deaktivieren'];
+            }
+            if ($targetUser['role'] === 'super_admin' && $isActive === 0) {
+                $stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'super_admin' AND is_active = 1");
+                $activeSuperAdmins = (int)$stmt->fetchColumn();
+                if ($activeSuperAdmins <= 1) {
+                    return ['error' => 'Der letzte aktive Super-Admin kann nicht deaktiviert werden'];
+                }
+            }
+            if (in_array($targetUser['role'], ['admin', 'super_admin'], true) && $isActive === 0) {
+                $stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE role IN ('admin','super_admin') AND is_active = 1");
+                $activePrivileged = (int)$stmt->fetchColumn();
+                if ($activePrivileged <= 1) {
+                    return ['error' => 'Der letzte aktive Administrator kann nicht deaktiviert werden'];
+                }
+            }
+            $updates[] = 'is_active = ?';
+            $params[] = $isActive;
         }
         
         // Passwort aktualisieren
@@ -594,7 +870,7 @@ function updateUser($data) {
             return ['error' => 'Keine Änderungen angegeben'];
         }
         
-        $params[] = $data['id'];
+        $params[] = $userId;
         $sql = 'UPDATE users SET ' . implode(', ', $updates) . ' WHERE id = ?';
         
         $stmt = $pdo->prepare($sql);
@@ -602,7 +878,7 @@ function updateUser($data) {
         
         // Benutzerdetails für Audit-Log abrufen
         $stmt = $pdo->prepare('SELECT name, email FROM users WHERE id = ?');
-        $stmt->execute([$data['id']]);
+        $stmt->execute([$userId]);
         $user = $stmt->fetch();
         
         // Audit-Log
@@ -635,13 +911,24 @@ function deleteUser($userId) {
             return ['error' => 'Benutzer nicht gefunden'];
         }
         
-        if ($user['role'] === 'admin') {
-            // Prüfen, ob es noch andere Admins gibt
-            $stmt = $pdo->query('SELECT COUNT(*) as count FROM users WHERE role = "admin"');
+        if ($user['role'] === 'super_admin' && !isSuperAdmin()) {
+            return ['error' => 'Super-Admin kann nur vom Super-Admin gelöscht werden'];
+        }
+
+        if (in_array($user['role'], ['admin', 'super_admin'], true)) {
+            // Prüfen, ob es noch andere privilegierte Benutzer gibt
+            $stmt = $pdo->query("SELECT COUNT(*) as count FROM users WHERE role IN ('admin', 'super_admin')");
             $result = $stmt->fetch();
-            
-            if ($result['count'] <= 1) {
+            if ((int)$result['count'] <= 1) {
                 return ['error' => 'Der letzte Administrator kann nicht gelöscht werden'];
+            }
+        }
+
+        if ($user['role'] === 'super_admin') {
+            $stmt = $pdo->query("SELECT COUNT(*) as count FROM users WHERE role = 'super_admin'");
+            $result = $stmt->fetch();
+            if ((int)$result['count'] <= 1) {
+                return ['error' => 'Der letzte Super-Admin kann nicht gelöscht werden'];
             }
         }
         
@@ -662,13 +949,13 @@ function deleteUser($userId) {
 // Benutzer registrieren
 function registerUser($name, $email, $password) {
     $name = trim((string)$name);
-    $email = strtolower(trim((string)$email));
+    $email = normalizeEmailAddress($email);
 
     if ($name === '' || strlen($name) > 255) {
         return ['error' => 'Ungültiger Name'];
     }
 
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    if ($email === null) {
         return ['error' => 'Ungültige E-Mail-Adresse'];
     }
 
@@ -723,6 +1010,119 @@ function sendWelcomeEmail($name, $email) {
     return sendEmail($email, $subject, $body);
 }
 
+function createPasswordResetTokenForUser(PDO $pdo, $userId, $validHours = 1) {
+    $token = bin2hex(random_bytes(32));
+    $tokenHash = hash('sha256', $token);
+    $expires = date('Y-m-d H:i:s', strtotime('+' . max(1, (int)$validHours) . ' hour'));
+
+    $stmt = $pdo->prepare('DELETE FROM password_resets WHERE user_id = ?');
+    $stmt->execute([(int)$userId]);
+
+    $stmt = $pdo->prepare('INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)');
+    $stmt->execute([(int)$userId, $tokenHash, $expires]);
+
+    return $token;
+}
+
+function sendUserInviteEmail($name, $email, $token) {
+    global $config;
+    $appName = $config['app_name'] ?? 'Gipfeli-Koordinator';
+    $resetLink = getAppBaseUrl() . '/?page=confirm-reset&token=' . rawurlencode($token);
+
+    $subject = "Einladung zu $appName";
+    $safeName = htmlspecialchars((string)$name, ENT_QUOTES, 'UTF-8');
+    $body = "Hallo $safeName,<br><br>";
+    $body .= "für dich wurde ein Benutzerkonto bei $appName erstellt.<br>";
+    $body .= "Bitte klicke auf den folgenden Link und setze dein Passwort:<br><br>";
+    $body .= "<a href=\"$resetLink\">$resetLink</a><br><br>";
+    $body .= "Der Link ist 48 Stunden gültig.<br><br>";
+    $body .= "Liebe Grüsse,<br>Dein $appName";
+
+    return sendEmail($email, $subject, $body);
+}
+
+function createUserByAdmin($name, $email, $role, $password = '', $notifyUser = true, $isActive = 1) {
+    $name = trim((string)$name);
+    $email = normalizeEmailAddress($email);
+    $role = trim((string)$role);
+    $password = (string)$password;
+    $notifyUser = (bool)$notifyUser;
+    $isActive = ((int)$isActive === 1) ? 1 : 0;
+
+    if (!isAdmin()) {
+        return ['error' => 'Zugriff verweigert'];
+    }
+    if ($name === '' || strlen($name) > 255) {
+        return ['error' => 'Ungültiger Name'];
+    }
+    if ($email === null) {
+        return ['error' => 'Ungültige E-Mail-Adresse'];
+    }
+    if (!isAllowedEmailDomain($email)) {
+        return ['error' => 'Diese E-Mail-Domain ist nicht erlaubt.'];
+    }
+    if (!in_array($role, getAllowedRoleValues(), true)) {
+        return ['error' => 'Ungültige Rolle'];
+    }
+    if ($role === 'super_admin' && !isSuperAdmin()) {
+        return ['error' => 'Nur Super-Admin darf Super-Admin erstellen'];
+    }
+    if ($password === '' && !$notifyUser) {
+        return ['error' => 'Ohne Passwort muss "Benutzer informieren" aktiviert sein'];
+    }
+    if ($password !== '') {
+        $passwordPolicyError = validatePasswordPolicy($password);
+        if ($passwordPolicyError !== null) {
+            return ['error' => $passwordPolicyError];
+        }
+    }
+
+    try {
+        $pdo = connectDB();
+        $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ?');
+        $stmt->execute([$email]);
+        if ($stmt->fetch()) {
+            return ['error' => 'Diese E-Mail ist bereits registriert'];
+        }
+
+        $effectivePassword = $password !== '' ? $password : bin2hex(random_bytes(32));
+        $hashedPassword = password_hash($effectivePassword, PASSWORD_DEFAULT);
+
+        $stmt = $pdo->prepare('INSERT INTO users (name, email, password, role, is_active, last_active_at) VALUES (?, ?, ?, ?, ?, NULL)');
+        $stmt->execute([$name, $email, $hashedPassword, $role, $isActive]);
+        $newUserId = (int)$pdo->lastInsertId();
+
+        $mailSent = null;
+        if ($notifyUser) {
+            if ($password === '') {
+                $inviteToken = createPasswordResetTokenForUser($pdo, $newUserId, 48);
+                $mailSent = sendUserInviteEmail($name, $email, $inviteToken);
+            } else {
+                $mailSent = sendWelcomeEmail($name, $email);
+            }
+        }
+
+        addAuditLog('create_user', "Benutzer erstellt: {$name} ({$email})", [
+            'role' => $role,
+            'is_active' => $isActive,
+            'notify_user' => $notifyUser,
+            'password_set_by_admin' => ($password !== ''),
+            'mail_sent' => $mailSent
+        ]);
+
+        $message = $password === ''
+            ? 'Benutzer erstellt. E-Mail zum Passwort setzen wurde vorbereitet.'
+            : 'Benutzer erfolgreich erstellt.';
+        if ($notifyUser && $mailSent === false) {
+            $message .= ' Versand der E-Mail ist fehlgeschlagen (siehe SMTP-Log).';
+        }
+
+        return ['success' => true, 'message' => $message, 'mail_sent' => $mailSent];
+    } catch (PDOException $e) {
+        return ['error' => 'Interner Datenbankfehler'];
+    }
+}
+
 // Passwort ändern für eingeloggte Benutzer
 function changeUserPassword($currentPassword, $newPassword) {
     if (!isLoggedIn()) {
@@ -771,6 +1171,10 @@ function resetPassword($email) {
     try {
         global $config;
         $appName = $config['app_name'] ?? 'Gipfeli-Koordinator';
+        $email = normalizeEmailAddress($email);
+        if ($email === null) {
+            return ['error' => 'Ungültige E-Mail-Adresse'];
+        }
         
         $pdo = connectDB();
         
@@ -785,17 +1189,7 @@ function resetPassword($email) {
         }
         
         // Token generieren (nur Hash in DB speichern)
-        $token = bin2hex(random_bytes(32)); // Sicherer Token
-        $tokenHash = hash('sha256', $token);
-        $expires = date('Y-m-d H:i:s', strtotime('+1 hour'));
-        
-        // Alten Token entfernen
-        $stmt = $pdo->prepare('DELETE FROM password_resets WHERE user_id = ?');
-        $stmt->execute([$user['id']]);
-        
-        // Neuen Token speichern
-        $stmt = $pdo->prepare('INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)');
-        $stmt->execute([$user['id'], $tokenHash, $expires]);
+        $token = createPasswordResetTokenForUser($pdo, (int)$user['id'], 1);
         
         // E-Mail mit Reset-Link senden
         $resetLink = getAppBaseUrl() . '/?page=confirm-reset&token=' . rawurlencode($token);
@@ -903,15 +1297,15 @@ function confirmResetPassword($token, $password) {
 function debugEntries($entries) {
     foreach ($entries as $date => $entry) {
         if (is_array($entry)) {
-            error_log("Date: $date has " . count($entry) . " entries");
+            debugLog("Date: $date has " . count($entry) . " entries");
             // Überprüfen, ob es ein numerisches Array oder ein assoziatives Array ist
             if (isset($entry[0])) {
-                error_log("  Entry structure: Numeric array");
+                debugLog("  Entry structure: Numeric array");
             } else {
-                error_log("  Entry structure: Associative array - PROBLEM!");
+                debugLog("  Entry structure: Associative array - PROBLEM!");
             }
         } else {
-            error_log("Date: $date has 1 single entry (not in array)");
+            debugLog("Date: $date has 1 single entry (not in array)");
         }
     }
     return $entries;
@@ -926,7 +1320,7 @@ function getAllEntries() {
         $stmt = $pdo->query('SELECT id, date, name, type, timestamp FROM gipfeli_entries ORDER BY date ASC, timestamp ASC');
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        error_log("Total entries found: " . count($rows));
+        debugLog("Total entries found: " . count($rows));
         
         // Format in ein Objekt umwandeln, wie es das Frontend erwartet
         $entries = [];
@@ -982,10 +1376,10 @@ function getAllEntries() {
         }
         
         // Zum Debuggen die finale Struktur protokollieren
-        error_log("Final entries structure: " . substr(json_encode($entries), 0, 1000) . "...");
+        debugLog("Final entries structure: " . substr(json_encode($entries), 0, 1000) . "...");
         
         // Debug-Funktion aufrufen, um die Struktur zu überprüfen
-        return debugEntries($entries);
+        return isDebugModeEnabled() ? debugEntries($entries) : $entries;
     } catch (PDOException $e) {
         error_log("Error in getAllEntries: " . $e->getMessage());
         return ['error' => 'Interner Datenbankfehler'];
@@ -1020,7 +1414,7 @@ function saveEntry($data) {
         $stmt->execute([$date, $userId]);
         $result = $stmt->fetch();
         
-        error_log("Saving entry: Date=$date, Name=$name, Existing entries={$result['count']}");
+        debugLog("Saving entry: Date=$date, Name=$name, Existing entries={$result['count']}");
         
         // Generiere eine eindeutige ID für den Eintrag
         $entryId = uniqid('entry_');
@@ -1284,14 +1678,21 @@ function handleApiRequest() {
         case 'login':
             if ($method === 'POST') {
                 $data = getJsonInput();
-                $rateLimitIdentifier = strtolower(trim((string)($data['email'] ?? '')));
+                $normalizedEmail = normalizeEmailAddress($data['email'] ?? '');
+                $rateLimitIdentifier = $normalizedEmail ?? strtolower(trim((string)($data['email'] ?? '')));
                 if (!consumeRateLimit('login', 10, 900, $rateLimitIdentifier)) {
                     http_response_code(429);
                     echo json_encode(['error' => 'Zu viele Anmeldeversuche. Bitte später erneut versuchen.']);
                     break;
                 }
                 if (isset($data['email']) && isset($data['password'])) {
-                    if (authenticateUser($data['email'], $data['password'])) {
+                    if ($normalizedEmail === null || !is_string($data['password']) || $data['password'] === '') {
+                        http_response_code(401);
+                        echo json_encode(['error' => 'Ungültige Anmeldedaten']);
+                        break;
+                    }
+                    $authResult = authenticateUser($normalizedEmail, $data['password']);
+                    if (($authResult['success'] ?? false) === true) {
                         echo json_encode([
                             'success' => true,
                             'user' => [
@@ -1302,6 +1703,11 @@ function handleApiRequest() {
                             ]
                         ]);
                     } else {
+                        if (($authResult['reason'] ?? '') === 'inactive') {
+                            http_response_code(403);
+                            echo json_encode(['error' => 'Dein Benutzerkonto ist deaktiviert. Bitte Admin kontaktieren.']);
+                            break;
+                        }
                         http_response_code(401);
                         echo json_encode(['error' => 'Ungültige Anmeldedaten']);
                     }
@@ -1315,14 +1721,20 @@ function handleApiRequest() {
        case 'register':
     if ($method === 'POST') {
         $data = getJsonInput();
-        $rateLimitIdentifier = strtolower(trim((string)($data['email'] ?? '')));
+        $normalizedEmail = normalizeEmailAddress($data['email'] ?? '');
+        $rateLimitIdentifier = $normalizedEmail ?? strtolower(trim((string)($data['email'] ?? '')));
         if (!consumeRateLimit('register', 5, 3600, $rateLimitIdentifier)) {
             http_response_code(429);
             echo json_encode(['error' => 'Zu viele Registrierungsversuche. Bitte später erneut versuchen.']);
             break;
         }
         if (isset($data['email']) && isset($data['password']) && isset($data['name'])) {
-            $email = $data['email'];
+            if ($normalizedEmail === null) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Ungültige E-Mail-Adresse']);
+                break;
+            }
+            $email = $normalizedEmail;
 
             if (!isAllowedEmailDomain($email)) {
                 http_response_code(400);
@@ -1344,6 +1756,35 @@ function handleApiRequest() {
         }
     }
     break;
+
+        case 'admin-create-user':
+            if (!isLoggedIn() || !isAdmin()) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Zugriff verweigert']);
+                break;
+            }
+            if ($method !== 'POST') {
+                http_response_code(405);
+                echo json_encode(['error' => 'Methode nicht erlaubt']);
+                break;
+            }
+
+            $data = getJsonInput();
+            $name = $data['name'] ?? '';
+            $email = $data['email'] ?? '';
+            $role = $data['role'] ?? 'user';
+            $password = (string)($data['password'] ?? '');
+            $notifyUser = !isset($data['notify_user']) || (bool)$data['notify_user'];
+            $isActive = array_key_exists('is_active', $data) && (int)$data['is_active'] === 0 ? 0 : 1;
+
+            $result = createUserByAdmin($name, $email, $role, $password, $notifyUser, $isActive);
+            if (isset($result['success']) && $result['success'] === true) {
+                echo json_encode($result);
+            } else {
+                http_response_code(400);
+                echo json_encode($result);
+            }
+            break;
             
         case 'logout':
             if ($method !== 'POST') {
@@ -1389,14 +1830,20 @@ function handleApiRequest() {
         case 'reset-password':
             if ($method === 'POST') {
                 $data = getJsonInput();
-                $rateLimitIdentifier = strtolower(trim((string)($data['email'] ?? '')));
+                $normalizedEmail = normalizeEmailAddress($data['email'] ?? '');
+                $rateLimitIdentifier = $normalizedEmail ?? strtolower(trim((string)($data['email'] ?? '')));
                 if (!consumeRateLimit('reset_password', 5, 3600, $rateLimitIdentifier)) {
                     http_response_code(429);
                     echo json_encode(['error' => 'Zu viele Anfragen. Bitte später erneut versuchen.']);
                     break;
                 }
                 if (isset($data['email'])) {
-                    $result = resetPassword($data['email']);
+                    if ($normalizedEmail === null) {
+                        http_response_code(400);
+                        echo json_encode(['error' => 'Ungültige E-Mail-Adresse']);
+                        break;
+                    }
+                    $result = resetPassword($normalizedEmail);
                     echo json_encode($result);
                 } else {
                     http_response_code(400);
@@ -1535,6 +1982,191 @@ function handleApiRequest() {
                 }
             }
             break;
+
+        case 'smtp-config':
+            if (!isLoggedIn() || !isSuperAdmin()) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Nur Super-Admin darf SMTP konfigurieren']);
+                break;
+            }
+
+            if ($method === 'GET') {
+                echo json_encode([
+                    'settings' => [
+                        'mail_host' => (string)($config['mail_host'] ?? ''),
+                        'mail_port' => (int)($config['mail_port'] ?? 587),
+                        'mail_user' => (string)($config['mail_user'] ?? ''),
+                        'mail_from' => (string)($config['mail_from'] ?? ''),
+                        'mail_name' => (string)($config['mail_name'] ?? ''),
+                        'mail_pass' => '',
+                        'mail_pass_configured' => !empty($config['mail_pass'])
+                    ]
+                ]);
+            } elseif ($method === 'POST') {
+                $data = getJsonInput();
+                $mailHost = trim((string)($data['mail_host'] ?? ''));
+                $mailPort = (int)($data['mail_port'] ?? 587);
+                $mailUser = trim((string)($data['mail_user'] ?? ''));
+                $mailFrom = normalizeEmailAddress($data['mail_from'] ?? '');
+                $mailName = trim((string)($data['mail_name'] ?? ''));
+                $mailPassInput = trim((string)($data['mail_pass'] ?? ''));
+
+                if ($mailHost === '' || strlen($mailHost) > 255) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Ungültiger SMTP-Host']);
+                    break;
+                }
+                if ($mailPort < 1 || $mailPort > 65535) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Ungültiger SMTP-Port']);
+                    break;
+                }
+                if ($mailFrom === null) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Ungültige Absender-E-Mail']);
+                    break;
+                }
+                if ($mailName === '' || strlen($mailName) > 255) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Ungültiger Absendername']);
+                    break;
+                }
+
+                try {
+                    $pdo = connectDB();
+                    $existing = getAppConfigCategory($pdo, 'smtp');
+                    $effectivePass = $mailPassInput !== '' ? $mailPassInput : (string)($existing['mail_pass'] ?? ($config['mail_pass'] ?? ''));
+
+                    $settings = [
+                        'mail_host' => $mailHost,
+                        'mail_port' => (string)$mailPort,
+                        'mail_user' => $mailUser,
+                        'mail_pass' => $effectivePass,
+                        'mail_from' => $mailFrom,
+                        'mail_name' => $mailName
+                    ];
+                    saveAppConfigCategory($pdo, 'smtp', $settings);
+
+                    $GLOBALS['config']['mail_host'] = $mailHost;
+                    $GLOBALS['config']['mail_port'] = $mailPort;
+                    $GLOBALS['config']['mail_user'] = $mailUser;
+                    $GLOBALS['config']['mail_pass'] = $effectivePass;
+                    $GLOBALS['config']['mail_from'] = $mailFrom;
+                    $GLOBALS['config']['mail_name'] = $mailName;
+
+                    addAuditLog('update_smtp_config', 'SMTP-Konfiguration aktualisiert');
+                    echo json_encode(['success' => true, 'message' => 'SMTP-Konfiguration gespeichert']);
+                } catch (PDOException $e) {
+                    http_response_code(500);
+                    echo json_encode(['error' => 'Interner Datenbankfehler']);
+                }
+            } else {
+                http_response_code(405);
+                echo json_encode(['error' => 'Methode nicht erlaubt']);
+            }
+            break;
+
+        case 'system-settings':
+            if (!isLoggedIn() || !isAdmin()) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Zugriff verweigert']);
+                break;
+            }
+
+            if ($method === 'GET') {
+                echo json_encode([
+                    'settings' => [
+                        'debug_mode' => isDebugModeEnabled()
+                    ]
+                ]);
+            } elseif ($method === 'POST') {
+                if (!isSuperAdmin()) {
+                    http_response_code(403);
+                    echo json_encode(['error' => 'Nur Super-Admin darf Systemeinstellungen ändern']);
+                    break;
+                }
+
+                $data = getJsonInput();
+                $debugMode = !empty($data['debug_mode']) ? 1 : 0;
+                try {
+                    $pdo = connectDB();
+                    saveAppConfigCategory($pdo, 'system', [
+                        'debug_mode' => (string)$debugMode
+                    ]);
+                    $GLOBALS['config']['debug_mode'] = ($debugMode === 1);
+                    addAuditLog('update_system_settings', 'Systemeinstellungen aktualisiert', ['debug_mode' => $debugMode]);
+                    echo json_encode(['success' => true, 'message' => 'Systemeinstellungen gespeichert']);
+                } catch (PDOException $e) {
+                    http_response_code(500);
+                    echo json_encode(['error' => 'Interner Datenbankfehler']);
+                }
+            } else {
+                http_response_code(405);
+                echo json_encode(['error' => 'Methode nicht erlaubt']);
+            }
+            break;
+
+        case 'smtp-log':
+            if (!isLoggedIn() || !isAdmin()) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Zugriff verweigert']);
+                break;
+            }
+            if ($method !== 'GET') {
+                http_response_code(405);
+                echo json_encode(['error' => 'Methode nicht erlaubt']);
+                break;
+            }
+
+            $limit = isset($_GET['limit']) ? max(1, min(500, (int)$_GET['limit'])) : 200;
+            echo json_encode([
+                'entries' => getSmtpLogEntries($limit),
+                'log_file' => APP_DATA_DIR . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'smtp.log'
+            ]);
+            break;
+
+        case 'smtp-test':
+            if (!isLoggedIn() || !isAdmin()) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Zugriff verweigert']);
+                break;
+            }
+            if ($method !== 'POST') {
+                http_response_code(405);
+                echo json_encode(['error' => 'Methode nicht erlaubt']);
+                break;
+            }
+
+            $data = getJsonInput();
+            $recipient = normalizeEmailAddress($data['to'] ?? ($_SESSION['user_email'] ?? ''));
+            if ($recipient === null) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Ungültige Empfänger-E-Mail']);
+                break;
+            }
+
+            $appName = $config['app_name'] ?? 'Gipfeli-Koordinator';
+            $subject = 'SMTP-Test - ' . $appName;
+            $body = 'Dies ist eine SMTP-Testmail von ' . htmlspecialchars($appName, ENT_QUOTES, 'UTF-8')
+                . '.<br>Zeitpunkt: ' . date('d.m.Y H:i:s');
+
+            $sent = sendEmail($recipient, $subject, $body);
+            if ($sent) {
+                addAuditLog('smtp_test', "SMTP-Test erfolgreich an $recipient");
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'SMTP-Testmail wurde gesendet',
+                    'log_file' => APP_DATA_DIR . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'smtp.log'
+                ]);
+            } else {
+                http_response_code(500);
+                addAuditLog('smtp_test_failed', "SMTP-Test fehlgeschlagen für $recipient");
+                echo json_encode([
+                    'error' => 'SMTP-Test fehlgeschlagen (siehe SMTP-Log)',
+                    'log_file' => APP_DATA_DIR . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'smtp.log'
+                ]);
+            }
+            break;
             
         default:
             http_response_code(404);
@@ -1546,6 +2178,9 @@ function handleApiRequest() {
 function setupDatabase() {
     try {
         $pdo = connectDB();
+        if (!$pdo instanceof PDO) {
+            return false;
+        }
         
         // Tabellen überprüfen und bei Bedarf erstellen
         $pdo->exec("CREATE TABLE IF NOT EXISTS `users` (
@@ -1553,9 +2188,36 @@ function setupDatabase() {
             `name` VARCHAR(255) NOT NULL,
             `email` VARCHAR(255) NOT NULL UNIQUE,
             `password` VARCHAR(255) NOT NULL,
-            `role` ENUM('user', 'admin') NOT NULL DEFAULT 'user',
+            `role` ENUM('user', 'admin', 'super_admin') NOT NULL DEFAULT 'user',
+            `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+            `last_active_at` DATETIME NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+        // Rollen-Spalte um super_admin erweitern (Migration)
+        $roleColumn = $pdo->query("SHOW COLUMNS FROM users LIKE 'role'");
+        $roleInfo = $roleColumn ? $roleColumn->fetch() : null;
+        if ($roleInfo && strpos((string)$roleInfo['Type'], 'super_admin') === false) {
+            $pdo->exec("ALTER TABLE users MODIFY role ENUM('user', 'admin', 'super_admin') NOT NULL DEFAULT 'user'");
+        }
+
+        // Benutzerstatus-/Aktivitätsfelder für ältere Installationen ergänzen
+        $isActiveColumn = $pdo->query("SHOW COLUMNS FROM users LIKE 'is_active'");
+        if ($isActiveColumn && $isActiveColumn->rowCount() === 0) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER role");
+        }
+
+        $lastActiveColumn = $pdo->query("SHOW COLUMNS FROM users LIKE 'last_active_at'");
+        if ($lastActiveColumn && $lastActiveColumn->rowCount() === 0) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN last_active_at DATETIME NULL AFTER is_active");
+        }
+        $pdo->exec("UPDATE users SET is_active = 1 WHERE is_active IS NULL");
+
+        // Sicherstellen, dass mindestens ein Super-Admin existiert
+        $superAdminCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'super_admin'")->fetchColumn();
+        if ($superAdminCount === 0) {
+            $pdo->exec("UPDATE users SET role = 'super_admin' WHERE role = 'admin' ORDER BY id ASC LIMIT 1");
+        }
         
         // Angepasste Gipfeli-Tabelle für Mehrfacheinträge
         $pdo->exec("CREATE TABLE IF NOT EXISTS `gipfeli_entries` (
@@ -1634,6 +2296,7 @@ function setupDatabase() {
 
 // Datenbank beim ersten Aufruf einrichten
 setupDatabase();
+touchCurrentUserActivity();
 
 // Wenn die Anfrage an die API geht, entsprechend verarbeiten
 if (isset($_GET['api'])) {
@@ -1643,10 +2306,10 @@ if (isset($_GET['api'])) {
 }
 
 // Wenn nichts von oben zutrifft, zeige die entsprechende Seite
-$page = isset($_GET['page']) ? $_GET['page'] : 'main';
+$page = isset($_GET['page']) ? $_GET['page'] : (isLoggedIn() ? 'main' : 'start');
 
 // Wenn der Benutzer nicht angemeldet ist und die Seite erfordert Anmeldung, umleiten
-if (!isLoggedIn() && !in_array($page, ['login', 'register', 'reset-password', 'confirm-reset'])) {
+if (!isLoggedIn() && !in_array($page, ['start', 'login', 'register', 'reset-password', 'confirm-reset'])) {
     header('Location: ?page=login');
     exit;
 }
@@ -1659,6 +2322,9 @@ if (strpos($page, 'admin-') === 0 && !isAdmin()) {
 
 // Seite anzeigen basierend auf dem 'page' Parameter
 switch ($page) {
+    case 'start':
+        include 'pages/start.php';
+        break;
     case 'login':
         include 'pages/login.php';
         break;
@@ -1679,6 +2345,9 @@ switch ($page) {
         break;
     case 'admin-audit':
         include 'pages/admin-audit.php';
+        break;
+    case 'admin-settings':
+        include 'pages/admin-settings.php';
         break;
     case 'admin-branding':
         include 'pages/admin-branding.php';

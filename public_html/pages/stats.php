@@ -280,6 +280,28 @@
             flex-direction: column;
             gap: 12px;
         }
+        .password-form .form-group {
+            margin: 0;
+        }
+        .password-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .password-actions button {
+            flex: 1;
+        }
+        .password-rules {
+            margin: 6px 0 0;
+            padding-left: 18px;
+            font-size: 12px;
+            color: #666;
+        }
+        .password-rules li.valid {
+            color: #155724;
+        }
+        .password-rules li.invalid {
+            color: #721c24;
+        }
         input, textarea, button, select {
             padding: 8px;
             border-radius: 4px;
@@ -353,6 +375,7 @@
             <?php if (isAdmin()): ?>
                 <li><a href="?page=admin-users">Benutzerverwaltung</a></li>
                 <li><a href="?page=admin-audit">Audit-Log</a></li>
+                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> Einstellungen</a></li>
                 <li><a href="?page=admin-branding"><i class="fas fa-paint-brush"></i> Branding</a></li>
             <?php endif; ?>
         </ul>
@@ -380,21 +403,25 @@
                 <button class="close-modal" id="close-password-modal">&times;</button>
             </div>
             <div id="password-status" class="status" style="display: none;"></div>
-            <form id="password-form">
-                <div>
+            <form id="password-form" class="password-form">
+                <div class="form-group">
                     <label for="current-password">Aktuelles Passwort:</label>
                     <input type="password" id="current-password" required>
                 </div>
-                <div>
+                <div class="form-group">
                     <label for="new-password">Neues Passwort:</label>
-                    <input type="password" id="new-password" required minlength="8">
-                    <small>Mindestens 8 Zeichen</small>
+                    <input type="password" id="new-password" required minlength="10" maxlength="128">
+                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <ul class="password-rules" id="password-rules">
+                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
+                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                    </ul>
                 </div>
-                <div>
+                <div class="form-group">
                     <label for="confirm-password">Passwort bestätigen:</label>
                     <input type="password" id="confirm-password" required>
                 </div>
-                <div>
+                <div class="password-actions">
                     <button type="submit">Passwort ändern</button>
                     <button type="button" class="btn-secondary" id="cancel-password-btn">Abbrechen</button>
                 </div>
@@ -418,6 +445,26 @@
         const cancelPasswordBtn = document.getElementById('cancel-password-btn');
         const passwordForm = document.getElementById('password-form');
         const passwordStatus = document.getElementById('password-status');
+        const newPasswordInput = document.getElementById('new-password');
+        const ruleLength = document.getElementById('rule-length');
+        const ruleClasses = document.getElementById('rule-classes');
+
+        function checkPasswordPolicy(password) {
+            const lengthOk = password.length >= 10 && password.length <= 128;
+            const classes = [
+                /[a-z]/.test(password),
+                /[A-Z]/.test(password),
+                /[0-9]/.test(password),
+                /[^a-zA-Z0-9]/.test(password)
+            ].filter(Boolean).length;
+            const classesOk = classes >= 3;
+            return { lengthOk, classesOk, valid: lengthOk && classesOk };
+        }
+
+        function setRuleState(element, isValid) {
+            element.classList.toggle('valid', isValid);
+            element.classList.toggle('invalid', !isValid);
+        }
         
         // Event-Listener initialisieren
         document.addEventListener('DOMContentLoaded', function() {
@@ -427,6 +474,10 @@
             // Event-Listener für Passwort ändern
             changePasswordBtn.addEventListener('click', function(e) {
                 e.preventDefault();
+                passwordForm.reset();
+                passwordStatus.style.display = 'none';
+                setRuleState(ruleLength, false);
+                setRuleState(ruleClasses, false);
                 passwordModal.style.display = 'block';
             });
             
@@ -455,8 +506,9 @@
                 const confirmPassword = document.getElementById('confirm-password').value;
                 
                 // Validierung
-                if (newPassword.length < 8) {
-                    showPasswordStatus('Das neue Passwort muss mindestens 8 Zeichen lang sein.', 'error');
+                const policy = checkPasswordPolicy(newPassword);
+                if (!policy.valid) {
+                    showPasswordStatus('Das neue Passwort erfüllt die Anforderungen noch nicht.', 'error');
                     return;
                 }
                 
@@ -470,6 +522,12 @@
             
             // Initialisierung
             loadStats();
+        });
+
+        newPasswordInput.addEventListener('input', function() {
+            const policy = checkPasswordPolicy(newPasswordInput.value);
+            setRuleState(ruleLength, policy.lengthOk);
+            setRuleState(ruleClasses, policy.classesOk);
         });
         
         // Passwort-Status anzeigen
@@ -528,7 +586,7 @@
                         'X-CSRF-Token': CSRF_TOKEN
                     }
                 });
-                window.location.href = '?page=login';
+                window.location.href = '?page=start';
             } catch (error) {
                 console.error('Logout fehlgeschlagen:', error);
             }

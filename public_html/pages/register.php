@@ -157,6 +157,18 @@ $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
             color: #666;
             font-size: 12px;
         }
+        .password-rules {
+            margin: 8px 0 0;
+            padding-left: 18px;
+            font-size: 12px;
+            color: #666;
+        }
+        .password-rules li.valid {
+            color: #155724;
+        }
+        .password-rules li.invalid {
+            color: #721c24;
+        }
     </style>
 </head>
 <body>
@@ -189,14 +201,19 @@ $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
                 
                 <div class="form-group">
                     <label for="password">Passwort</label>
-                    <input type="password" id="password" name="password" required minlength="8">
-                    <small>Mindestens 8 Zeichen</small>
+                    <input type="password" id="password" name="password" required minlength="10" maxlength="128">
+                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <ul class="password-rules" id="password-rules">
+                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
+                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                    </ul>
                 </div>
                 
                 <button type="submit">Registrieren</button>
             </form>
             
             <div class="links">
+                <a href="?page=start">Zur Startseite</a><br>
                 <a href="?page=login">Bereits registriert? Anmelden</a>
             </div>
         </div>
@@ -207,13 +224,54 @@ $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
         const registerForm = document.getElementById('register-form');
         const errorMessage = document.getElementById('error-message');
         const successMessage = document.getElementById('success-message');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const ruleLength = document.getElementById('rule-length');
+        const ruleClasses = document.getElementById('rule-classes');
+
+        function checkPasswordPolicy(password) {
+            const lengthOk = password.length >= 10 && password.length <= 128;
+            const classes = [
+                /[a-z]/.test(password),
+                /[A-Z]/.test(password),
+                /[0-9]/.test(password),
+                /[^a-zA-Z0-9]/.test(password)
+            ].filter(Boolean).length;
+            const classesOk = classes >= 3;
+            return { lengthOk, classesOk, valid: lengthOk && classesOk };
+        }
+
+        function setRuleState(element, isValid) {
+            element.classList.toggle('valid', isValid);
+            element.classList.toggle('invalid', !isValid);
+        }
+
+        passwordInput.addEventListener('input', () => {
+            const state = checkPasswordPolicy(passwordInput.value);
+            setRuleState(ruleLength, state.lengthOk);
+            setRuleState(ruleClasses, state.classesOk);
+        });
         
         registerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
             const name = document.getElementById('name').value;
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
+            const email = emailInput.value;
+            const password = passwordInput.value;
+
+            if (!emailInput.checkValidity()) {
+                errorMessage.textContent = 'Bitte gib eine gültige E-Mail-Adresse ein.';
+                errorMessage.style.display = 'block';
+                successMessage.style.display = 'none';
+                return;
+            }
+            const policyState = checkPasswordPolicy(password);
+            if (!policyState.valid) {
+                errorMessage.textContent = 'Passwort erfüllt die Anforderungen noch nicht.';
+                errorMessage.style.display = 'block';
+                successMessage.style.display = 'none';
+                return;
+            }
             
             // Domain-Überprüfung entfernt
             

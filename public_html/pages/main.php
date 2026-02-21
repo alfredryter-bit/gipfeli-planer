@@ -364,6 +364,28 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             flex-direction: column;
             gap: 12px;
         }
+        .password-form .form-group {
+            margin: 0;
+        }
+        .password-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .password-actions button {
+            flex: 1;
+        }
+        .password-rules {
+            margin: 6px 0 0;
+            padding-left: 18px;
+            font-size: 12px;
+            color: #666;
+        }
+        .password-rules li.valid {
+            color: #155724;
+        }
+        .password-rules li.invalid {
+            color: #721c24;
+        }
         input, textarea, button, select {
             padding: 8px;
             border-radius: 4px;
@@ -588,6 +610,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             <?php if (isAdmin()): ?>
                 <li><a href="?page=admin-users">Benutzerverwaltung</a></li>
                 <li><a href="?page=admin-audit">Audit-Log</a></li>
+                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> Einstellungen</a></li>
                 <li><a href="?page=admin-branding"><i class="fas fa-paint-brush"></i> Branding</a></li>
             <?php endif; ?>
         </ul>
@@ -640,10 +663,10 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                     <input type="text" id="gipfeli-type" placeholder="z.B. Schoggi, Mandel, Klassisch">
                 </div>
                 <div class="checkbox-group">
-                    <input type="checkbox" id="notify-others">
+                    <input type="checkbox" id="notify-others" checked>
                     <label for="notify-others">Andere Benutzer benachrichtigen</label>
                 </div>
-                <div id="notification-message-container" style="display: none;">
+                <div id="notification-message-container" style="display: block;">
                     <label for="notification-message">Nachricht (optional):</label>
                     <textarea id="notification-message" placeholder="Zusätzliche Informationen für die Benachrichtigung..."></textarea>
                 </div>
@@ -678,21 +701,25 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 <button class="close-modal" id="close-password-modal">&times;</button>
             </div>
             <div id="password-status" class="status" style="display: none;"></div>
-            <form id="password-form">
-                <div>
+            <form id="password-form" class="password-form">
+                <div class="form-group">
                     <label for="current-password">Aktuelles Passwort:</label>
                     <input type="password" id="current-password" required>
                 </div>
-                <div>
+                <div class="form-group">
                     <label for="new-password">Neues Passwort:</label>
-                    <input type="password" id="new-password" required minlength="8">
-                    <small>Mindestens 8 Zeichen</small>
+                    <input type="password" id="new-password" required minlength="10" maxlength="128">
+                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <ul class="password-rules" id="password-rules">
+                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
+                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                    </ul>
                 </div>
-                <div>
+                <div class="form-group">
                     <label for="confirm-password">Passwort bestätigen:</label>
                     <input type="password" id="confirm-password" required>
                 </div>
-                <div>
+                <div class="password-actions">
                     <button type="submit">Passwort ändern</button>
                     <button type="button" class="btn-secondary" id="cancel-password-btn">Abbrechen</button>
                 </div>
@@ -741,6 +768,9 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         const notifyCheckbox = document.getElementById('notify-others');
         const notificationMessageContainer = document.getElementById('notification-message-container');
         const addToDayBtn = document.getElementById('add-to-day-btn');
+        const newPasswordInput = document.getElementById('new-password');
+        const ruleLength = document.getElementById('rule-length');
+        const ruleClasses = document.getElementById('rule-classes');
         
         // Monatsnamen
         const monthNames = [
@@ -751,6 +781,30 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         // Event-Listener für Benachrichtigungsoptionen
         notifyCheckbox.addEventListener('change', function() {
             notificationMessageContainer.style.display = this.checked ? 'block' : 'none';
+        });
+        notificationMessageContainer.style.display = notifyCheckbox.checked ? 'block' : 'none';
+
+        function checkPasswordPolicy(password) {
+            const lengthOk = password.length >= 10 && password.length <= 128;
+            const classes = [
+                /[a-z]/.test(password),
+                /[A-Z]/.test(password),
+                /[0-9]/.test(password),
+                /[^a-zA-Z0-9]/.test(password)
+            ].filter(Boolean).length;
+            const classesOk = classes >= 3;
+            return { lengthOk, classesOk, valid: lengthOk && classesOk };
+        }
+
+        function setRuleState(element, isValid) {
+            element.classList.toggle('valid', isValid);
+            element.classList.toggle('invalid', !isValid);
+        }
+
+        newPasswordInput.addEventListener('input', () => {
+            const policy = checkPasswordPolicy(newPasswordInput.value);
+            setRuleState(ruleLength, policy.lengthOk);
+            setRuleState(ruleClasses, policy.classesOk);
         });
         
         // Event-Listener für Logout
@@ -814,7 +868,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                         'X-CSRF-Token': CSRF_TOKEN
                     }
                 });
-                window.location.href = '?page=login';
+                window.location.href = '?page=start';
             } catch (error) {
                 console.error('Logout fehlgeschlagen:', error);
             }
@@ -1135,8 +1189,9 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             const confirmPassword = document.getElementById('confirm-password').value;
             
             // Validierung
-            if (newPassword.length < 8) {
-                showPasswordStatus('Das neue Passwort muss mindestens 8 Zeichen lang sein.', 'error');
+            const policy = checkPasswordPolicy(newPassword);
+            if (!policy.valid) {
+                showPasswordStatus('Das neue Passwort erfüllt die Anforderungen noch nicht.', 'error');
                 return;
             }
             
@@ -1513,6 +1568,8 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             // Formular zurücksetzen
             passwordForm.reset();
             passwordStatus.style.display = 'none';
+            setRuleState(ruleLength, false);
+            setRuleState(ruleClasses, false);
             
             // Modal anzeigen
             passwordModal.style.display = 'block';
@@ -1540,9 +1597,9 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 
                 // Formular zurücksetzen
                 document.getElementById('gipfeli-type').value = '';
-                document.getElementById('notify-others').checked = false;
+                document.getElementById('notify-others').checked = true;
                 document.getElementById('notification-message').value = '';
-                document.getElementById('notification-message-container').style.display = 'none';
+                document.getElementById('notification-message-container').style.display = 'block';
                 
                 // Aktualisieren des Modaltitels mit Monatsinformation
                 updateModalTitle(dateString);
@@ -1595,9 +1652,9 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 
                // Bestehende Daten in das Formular übernehmen
                 document.getElementById('gipfeli-type').value = entry.type || '';
-                document.getElementById('notify-others').checked = false;
+                document.getElementById('notify-others').checked = true;
                 document.getElementById('notification-message').value = '';
-                document.getElementById('notification-message-container').style.display = 'none';
+                document.getElementById('notification-message-container').style.display = 'block';
                 
                 // Warnung ausblenden
                 warningMessage.style.display = 'none';

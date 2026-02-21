@@ -176,6 +176,7 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
             </form>
             
             <div class="links">
+                <a href="?page=start">Zur Startseite</a><br><br>
                 <a href="?page=login">Zurück zur Anmeldung</a>
             </div>
         </div>
@@ -187,6 +188,7 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
         const errorMessage = document.getElementById('error-message');
         const successMessage = document.getElementById('success-message');
         const submitBtn = document.getElementById('submit-btn');
+        const emailInput = document.getElementById('email');
         
         resetForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -195,7 +197,15 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
             submitBtn.disabled = true;
             submitBtn.textContent = 'Wird gesendet...';
             
-            const email = document.getElementById('email').value;
+            const email = emailInput.value;
+            if (!emailInput.checkValidity()) {
+                errorMessage.textContent = 'Bitte gib eine gültige E-Mail-Adresse ein.';
+                errorMessage.style.display = 'block';
+                successMessage.style.display = 'none';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Link zum Zurücksetzen senden';
+                return;
+            }
             
             try {
                 const response = await fetch('?api=1&endpoint=reset-password', {

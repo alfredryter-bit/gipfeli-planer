@@ -317,6 +317,7 @@ if (!isAdmin()) {
             <?php if (isAdmin()): ?>
                 <li><a href="?page=admin-users">Benutzerverwaltung</a></li>
                 <li><a href="?page=admin-audit" class="active">Audit-Log</a></li>
+                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> Einstellungen</a></li>
                 <li><a href="?page=admin-branding"><i class="fas fa-paint-brush"></i> Branding</a></li>
             <?php endif; ?>
         </ul>
@@ -449,7 +450,7 @@ if (!isAdmin()) {
                         'X-CSRF-Token': CSRF_TOKEN
                     }
                 });
-                window.location.href = '?page=login';
+                window.location.href = '?page=start';
             } catch (error) {
                 console.error('Logout fehlgeschlagen:', error);
             }

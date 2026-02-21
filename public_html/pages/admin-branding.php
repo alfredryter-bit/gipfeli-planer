@@ -366,6 +366,28 @@ if (isset($_GET['success'])) {
             flex-direction: column;
             gap: 12px;
         }
+        .password-form .form-group {
+            margin: 0;
+        }
+        .password-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .password-actions button {
+            flex: 1;
+        }
+        .password-rules {
+            margin: 6px 0 0;
+            padding-left: 18px;
+            font-size: 12px;
+            color: #666;
+        }
+        .password-rules li.valid {
+            color: #155724;
+        }
+        .password-rules li.invalid {
+            color: #721c24;
+        }
         input, textarea, button, select {
             padding: 8px;
             border-radius: 4px;
@@ -397,46 +419,50 @@ if (isset($_GET['success'])) {
         }
         
         /* Branding-spezifische Styles */
-        .color-input-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
+        .branding-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            align-items: start;
         }
-        
-        .color-input-group input[type="color"] {
-            height: 40px;
-            width: 60px;
+        .branding-panel {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 14px;
         }
-        
-        .color-input-group input[type="text"] {
-            flex: 1;
-        }
-        
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 14px;
         }
-        
         .form-group label {
             display: block;
             font-weight: bold;
             margin-bottom: 5px;
         }
-        
         .help-text {
             font-size: 12px;
             color: #666;
             margin-top: 5px;
         }
-        
+        .color-input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .color-input-group input[type="color"] {
+            height: 40px;
+            width: 60px;
+        }
+        .color-input-group input[type="text"] {
+            flex: 1;
+        }
         .preview-section {
-            margin-top: 20px;
-            padding: 15px;
+            margin-top: 12px;
+            padding: 12px;
             border: 1px solid #ddd;
             border-radius: 8px;
             background-color: #f9f9f9;
         }
-        
         .preview-header {
             background-color: var(--primary-color);
             color: white;
@@ -447,18 +473,16 @@ if (isset($_GET['success'])) {
             gap: 10px;
             margin-bottom: 10px;
         }
-        
         .preview-name {
             font-weight: bold;
             color: white;
         }
-        
         .preview-buttons {
             margin-top: 10px;
             display: flex;
             gap: 10px;
+            flex-wrap: wrap;
         }
-        
         .preview-button {
             padding: 8px 15px;
             border-radius: 4px;
@@ -467,58 +491,49 @@ if (isset($_GET['success'])) {
             cursor: pointer;
             color: white;
         }
-        
         .primary-button {
             background-color: var(--primary-color);
         }
-        
         .primary-button:hover {
             background-color: var(--primary-color-dark);
         }
-        
         .secondary-button {
             background-color: var(--secondary-color);
         }
-        
         .secondary-button:hover {
             background-color: var(--secondary-color-dark);
         }
-        
-        .preview-images {
-            margin-top: 10px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
-        }
-        
         .preview-image {
             border: 1px solid #ddd;
-            padding: 5px;
+            padding: 6px;
             background-color: white;
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 5px;
+            margin-top: 8px;
         }
-        
         .preview-image img {
             max-height: 50px;
             max-width: 200px;
         }
-        
+        .function-settings {
+            margin-top: 14px;
+        }
         .checkbox-group {
             display: flex;
             align-items: center;
             gap: 10px;
-            margin-top: 5px;
+            margin-top: 8px;
         }
-        
         .checkbox-group input[type="checkbox"] {
             margin: 0;
             padding: 0;
             width: auto;
         }
-        
+        .form-actions {
+            margin-top: 14px;
+        }
         .submit-button {
             background-color: var(--primary-color);
             color: white;
@@ -527,29 +542,23 @@ if (isset($_GET['success'])) {
             border-radius: 4px;
             font-weight: bold;
             cursor: pointer;
-            margin-top: 20px;
         }
-        
         .submit-button:hover {
             background-color: var(--primary-color-dark);
         }
-        
         .status-message {
             margin: 15px 0;
             padding: 10px;
             border-radius: 4px;
         }
-        
         .success-message {
             background-color: #d4edda;
             color: #155724;
         }
-        
         .error-message {
             background-color: #f8d7da;
             color: #721c24;
         }
-        
         .btn-logout {
             background-color: transparent;
             border: 1px solid white;
@@ -559,9 +568,13 @@ if (isset($_GET['success'])) {
             cursor: pointer;
             font-size: 12px;
         }
-        
         .btn-logout:hover {
             background-color: rgba(255, 255, 255, 0.1);
+        }
+        @media (max-width: 900px) {
+            .branding-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -597,6 +610,7 @@ if (isset($_GET['success'])) {
             <?php if (isAdmin()): ?>
                 <li><a href="?page=admin-users">Benutzerverwaltung</a></li>
                 <li><a href="?page=admin-audit">Audit-Log</a></li>
+                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> Einstellungen</a></li>
                 <li><a href="?page=admin-branding" class="active"><i class="fas fa-paint-brush"></i> Branding</a></li>
             <?php endif; ?>
         </ul>
@@ -619,83 +633,89 @@ if (isset($_GET['success'])) {
         
         <form method="post" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(getCsrfToken()); ?>">
-            <div class="form-group">
-                <label for="app_name">Name der Anwendung:</label>
-                <input type="text" id="app_name" name="app_name" value="<?php echo htmlspecialchars($appName); ?>" required>
-                <div class="help-text">Wird in der Kopfzeile und als Browser-Titel angezeigt.</div>
+            <div class="branding-grid">
+                <section class="branding-panel">
+                    <div class="form-group">
+                        <label for="app_name">Name der Anwendung:</label>
+                        <input type="text" id="app_name" name="app_name" value="<?php echo htmlspecialchars($appName); ?>" required>
+                        <div class="help-text">Wird in der Kopfzeile und als Browser-Titel angezeigt.</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="app_primary_color">Primärfarbe:</label>
+                        <div class="color-input-group">
+                            <input type="color" id="app_primary_color_picker" value="<?php echo htmlspecialchars($primaryColor); ?>">
+                            <input type="text" id="app_primary_color" name="app_primary_color" value="<?php echo htmlspecialchars($primaryColor); ?>">
+                        </div>
+                        <div class="help-text">Hauptfarbe für Kopfzeile, Buttons und Akzente.</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="app_secondary_color">Sekundärfarbe:</label>
+                        <div class="color-input-group">
+                            <input type="color" id="app_secondary_color_picker" value="<?php echo htmlspecialchars($secondaryColor); ?>">
+                            <input type="text" id="app_secondary_color" name="app_secondary_color" value="<?php echo htmlspecialchars($secondaryColor); ?>">
+                        </div>
+                        <div class="help-text">Farbe für sekundäre Elemente wie "Abbrechen"-Buttons.</div>
+                    </div>
+
+                    <div class="preview-section">
+                        <h3>Vorschau</h3>
+                        <div class="preview-header">
+                            <div class="preview-name" id="preview-name"><?php echo htmlspecialchars($appName); ?></div>
+                        </div>
+                        <div class="preview-buttons">
+                            <button type="button" class="preview-button primary-button" id="preview-primary-button">Primär-Button</button>
+                            <button type="button" class="preview-button secondary-button" id="preview-secondary-button">Sekundär-Button</button>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="branding-panel">
+                    <div class="form-group">
+                        <label for="app_logo">Logo:</label>
+                        <input type="file" id="app_logo" name="app_logo" accept="image/png,image/jpeg,image/webp">
+                        <div class="help-text">Empfohlene Höhe: 30px, transparenter Hintergrund.</div>
+                        
+                        <?php if (!empty($appLogo)): ?>
+                        <div class="preview-image">
+                            <span>Aktuelles Logo:</span>
+                            <img src="<?php echo htmlspecialchars($appLogo); ?>" alt="Logo">
+                        </div>
+                        <?php endif; ?>
+                        <div id="logo-preview"></div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="app_favicon">Favicon:</label>
+                        <input type="file" id="app_favicon" name="app_favicon" accept="image/x-icon,image/vnd.microsoft.icon,image/png">
+                        <div class="help-text">Das Icon im Browser-Tab. Format: .ico oder .png</div>
+                        
+                        <?php if (!empty($appFavicon)): ?>
+                        <div class="preview-image">
+                            <span>Aktuelles Favicon:</span>
+                            <img src="<?php echo htmlspecialchars($appFavicon); ?>" alt="Favicon">
+                        </div>
+                        <?php endif; ?>
+                        <div id="favicon-preview"></div>
+                    </div>
+                </section>
             </div>
-            
-            <div class="form-group">
-                <label for="app_primary_color">Primärfarbe:</label>
-                <div class="color-input-group">
-                    <input type="color" id="app_primary_color_picker" value="<?php echo htmlspecialchars($primaryColor); ?>">
-                    <input type="text" id="app_primary_color" name="app_primary_color" value="<?php echo htmlspecialchars($primaryColor); ?>">
+
+            <section class="branding-panel function-settings">
+                <div class="form-group">
+                    <label>Funktionseinstellungen:</label>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="allow_multiple_entries" name="allow_multiple_entries" <?php echo $allowMultipleEntries ? 'checked' : ''; ?>>
+                        <label for="allow_multiple_entries">Mehrere Einträge pro Tag erlauben</label>
+                    </div>
+                    
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="show_multiple_warning" name="show_multiple_warning" <?php echo $showMultipleWarning ? 'checked' : ''; ?>>
+                        <label for="show_multiple_warning">Warnung anzeigen, wenn bereits Einträge für diesen Tag existieren</label>
+                    </div>
                 </div>
-                <div class="help-text">Hauptfarbe für Kopfzeile, Buttons und Akzente.</div>
-            </div>
-            
-            <div class="form-group">
-                <label for="app_secondary_color">Sekundärfarbe:</label>
-                <div class="color-input-group">
-                    <input type="color" id="app_secondary_color_picker" value="<?php echo htmlspecialchars($secondaryColor); ?>">
-                    <input type="text" id="app_secondary_color" name="app_secondary_color" value="<?php echo htmlspecialchars($secondaryColor); ?>">
-                </div>
-                <div class="help-text">Farbe für sekundäre Elemente wie "Abbrechen"-Buttons.</div>
-            </div>
-            
-            <div class="form-group">
-                <label for="app_logo">Logo:</label>
-                <input type="file" id="app_logo" name="app_logo" accept="image/png,image/jpeg,image/webp">
-                <div class="help-text">Empfohlene Höhe: 30px, transparenter Hintergrund.</div>
-                
-                <?php if (!empty($appLogo)): ?>
-                <div class="preview-image">
-                    <span>Aktuelles Logo:</span>
-                    <img src="<?php echo htmlspecialchars($appLogo); ?>" alt="Logo">
-                </div>
-                <?php endif; ?>
-                <div id="logo-preview"></div>
-            </div>
-            
-            <div class="form-group">
-                <label for="app_favicon">Favicon:</label>
-                <input type="file" id="app_favicon" name="app_favicon" accept="image/x-icon,image/vnd.microsoft.icon,image/png">
-                <div class="help-text">Das Icon im Browser-Tab. Format: .ico oder .png</div>
-                
-                <?php if (!empty($appFavicon)): ?>
-                <div class="preview-image">
-                    <span>Aktuelles Favicon:</span>
-                    <img src="<?php echo htmlspecialchars($appFavicon); ?>" alt="Favicon">
-                </div>
-                <?php endif; ?>
-                <div id="favicon-preview"></div>
-            </div>
-            
-            <div class="form-group">
-                <label>Funktionseinstellungen:</label>
-                <div class="checkbox-group">
-                    <input type="checkbox" id="allow_multiple_entries" name="allow_multiple_entries" <?php echo $allowMultipleEntries ? 'checked' : ''; ?>>
-                    <label for="allow_multiple_entries">Mehrere Einträge pro Tag erlauben</label>
-                </div>
-                
-                <div class="checkbox-group">
-                    <input type="checkbox" id="show_multiple_warning" name="show_multiple_warning" <?php echo $showMultipleWarning ? 'checked' : ''; ?>>
-                    <label for="show_multiple_warning">Warnung anzeigen, wenn bereits Einträge für diesen Tag existieren</label>
-                </div>
-            </div>
-            
-            <div class="preview-section">
-                <h3>Vorschau:</h3>
-                
-                <div class="preview-header">
-                    <div class="preview-name" id="preview-name"><?php echo htmlspecialchars($appName); ?></div>
-                </div>
-                
-                <div class="preview-buttons">
-                    <button type="button" class="preview-button primary-button" id="preview-primary-button">Primär-Button</button>
-                    <button type="button" class="preview-button secondary-button" id="preview-secondary-button">Sekundär-Button</button>
-                </div>
-            </div>
+            </section>
             
             <div class="form-actions">
                 <button type="submit" name="save_branding" class="submit-button">Einstellungen speichern</button>
@@ -711,21 +731,25 @@ if (isset($_GET['success'])) {
                 <button class="close-modal" id="close-password-modal">&times;</button>
             </div>
             <div id="password-status" class="status" style="display: none;"></div>
-            <form id="password-form">
-                <div>
+            <form id="password-form" class="password-form">
+                <div class="form-group">
                     <label for="current-password">Aktuelles Passwort:</label>
                     <input type="password" id="current-password" required>
                 </div>
-                <div>
+                <div class="form-group">
                     <label for="new-password">Neues Passwort:</label>
-                    <input type="password" id="new-password" required minlength="8">
-                    <small>Mindestens 8 Zeichen</small>
+                    <input type="password" id="new-password" required minlength="10" maxlength="128">
+                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <ul class="password-rules" id="password-rules">
+                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
+                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                    </ul>
                 </div>
-                <div>
+                <div class="form-group">
                     <label for="confirm-password">Passwort bestätigen:</label>
                     <input type="password" id="confirm-password" required>
                 </div>
-                <div>
+                <div class="password-actions">
                     <button type="submit">Passwort ändern</button>
                     <button type="button" class="btn-secondary" id="cancel-password-btn">Abbrechen</button>
                 </div>
@@ -751,6 +775,26 @@ if (isset($_GET['success'])) {
         const cancelPasswordBtn = document.getElementById('cancel-password-btn');
         const passwordForm = document.getElementById('password-form');
         const passwordStatus = document.getElementById('password-status');
+        const newPasswordInput = document.getElementById('new-password');
+        const ruleLength = document.getElementById('rule-length');
+        const ruleClasses = document.getElementById('rule-classes');
+
+        function checkPasswordPolicy(password) {
+            const lengthOk = password.length >= 10 && password.length <= 128;
+            const classes = [
+                /[a-z]/.test(password),
+                /[A-Z]/.test(password),
+                /[0-9]/.test(password),
+                /[^a-zA-Z0-9]/.test(password)
+            ].filter(Boolean).length;
+            const classesOk = classes >= 3;
+            return { lengthOk, classesOk, valid: lengthOk && classesOk };
+        }
+
+        function setRuleState(element, isValid) {
+            element.classList.toggle('valid', isValid);
+            element.classList.toggle('invalid', !isValid);
+        }
         
         // CSS-Variablen für Vorschau
         document.documentElement.style.setProperty('--primary-color', primaryColorInput.value);
@@ -766,6 +810,10 @@ if (isset($_GET['success'])) {
             // Event-Listener für Passwort ändern
             changePasswordBtn.addEventListener('click', function(e) {
                 e.preventDefault();
+                passwordForm.reset();
+                passwordStatus.style.display = 'none';
+                setRuleState(ruleLength, false);
+                setRuleState(ruleClasses, false);
                 passwordModal.style.display = 'block';
             });
             
@@ -794,8 +842,9 @@ if (isset($_GET['success'])) {
                 const confirmPassword = document.getElementById('confirm-password').value;
                 
                 // Validierung
-                if (newPassword.length < 8) {
-                    showPasswordStatus('Das neue Passwort muss mindestens 8 Zeichen lang sein.', 'error');
+                const policy = checkPasswordPolicy(newPassword);
+                if (!policy.valid) {
+                    showPasswordStatus('Das neue Passwort erfüllt die Anforderungen noch nicht.', 'error');
                     return;
                 }
                 
@@ -805,6 +854,12 @@ if (isset($_GET['success'])) {
                 }
                 
                 changePassword(currentPassword, newPassword);
+            });
+
+            newPasswordInput.addEventListener('input', function() {
+                const policy = checkPasswordPolicy(newPasswordInput.value);
+                setRuleState(ruleLength, policy.lengthOk);
+                setRuleState(ruleClasses, policy.classesOk);
             });
         });
         
@@ -883,12 +938,13 @@ if (isset($_GET['success'])) {
                         'X-CSRF-Token': CSRF_TOKEN
                     }
                 });
-                window.location.href = '?page=login';
+                window.location.href = '?page=start';
             } catch (error) {
                 console.error('Logout fehlgeschlagen:', error);
             }
         }
-// Live-Vorschau aktualisieren
+
+        // Live-Vorschau aktualisieren
         function updatePreview() {
             const primaryColor = primaryColorInput.value;
             const secondaryColor = secondaryColorInput.value;

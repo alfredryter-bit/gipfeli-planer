@@ -180,9 +180,21 @@ if (!isAdmin()) {
             background-color: <?php echo htmlspecialchars($config['app_primary_color']); ?>;
             color: white;
         }
+        .badge-super-admin {
+            background-color: #111827;
+            color: white;
+        }
         .badge-user {
             background-color: #f8f9fa;
             color: #6c757d;
+        }
+        .badge-active {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        .badge-inactive {
+            background-color: #fee2e2;
+            color: #991b1b;
         }
         .responsive-table {
             overflow-x: auto;
@@ -242,6 +254,26 @@ if (!isAdmin()) {
             border-radius: 4px;
             box-sizing: border-box;
         }
+        .password-rules {
+            margin: 6px 0 0;
+            padding-left: 18px;
+            font-size: 12px;
+            color: #666;
+        }
+        .password-rules li.valid {
+            color: #155724;
+        }
+        .password-rules li.invalid {
+            color: #721c24;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
     </style>
 </head>
 <body>
@@ -267,6 +299,7 @@ if (!isAdmin()) {
             <?php if (isAdmin()): ?>
                 <li><a href="?page=admin-users" class="active">Benutzerverwaltung</a></li>
                 <li><a href="?page=admin-audit">Audit-Log</a></li>
+                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> Einstellungen</a></li>
                 <li><a href="?page=admin-branding"><i class="fas fa-paint-brush"></i> Branding</a></li>
             <?php endif; ?>
         </ul>
@@ -292,6 +325,8 @@ if (!isAdmin()) {
                         <th>Name</th>
                         <th>E-Mail</th>
                         <th>Rolle</th>
+                        <th>Status</th>
+                        <th>Letzte Aktivität</th>
                         <th>Registriert am</th>
                         <th>Aktionen</th>
                     </tr>
@@ -332,12 +367,33 @@ if (!isAdmin()) {
                     <select id="user-role" required>
                         <option value="user">Benutzer</option>
                         <option value="admin">Administrator</option>
+                        <?php if (isSuperAdmin()): ?>
+                        <option value="super_admin">Super-Admin</option>
+                        <?php endif; ?>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="user-is-active">Status:</label>
+                    <select id="user-is-active" required>
+                        <option value="1">Aktiv</option>
+                        <option value="0">Deaktiviert</option>
                     </select>
                 </div>
                 
                 <div class="form-group">
                     <label for="user-password">Passwort:</label>
-                    <input type="password" id="user-password" placeholder="Leer lassen, um nicht zu ändern">
+                    <input type="password" id="user-password" placeholder="Optional - leer = Passwort per Link setzen" minlength="10" maxlength="128">
+                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <ul class="password-rules" id="password-rules">
+                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
+                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                    </ul>
+                </div>
+
+                <div class="form-group checkbox-group" id="notify-user-group">
+                    <input type="checkbox" id="notify-user" checked>
+                    <label for="notify-user">Benutzer informieren (E-Mail)</label>
                 </div>
                 
                 <div>
@@ -368,6 +424,7 @@ if (!isAdmin()) {
         // API URL
         const API_URL = '?api=1&endpoint=';
         const CSRF_TOKEN = '<?php echo getCsrfToken(); ?>';
+        const IS_SUPER_ADMIN = <?php echo isSuperAdmin() ? 'true' : 'false'; ?>;
         
         // DOM-Elemente
         const loadingElement = document.getElementById('loading');
@@ -387,7 +444,12 @@ if (!isAdmin()) {
         const userName = document.getElementById('user-name');
         const userEmail = document.getElementById('user-email');
         const userRole = document.getElementById('user-role');
+        const userIsActive = document.getElementById('user-is-active');
         const userPassword = document.getElementById('user-password');
+        const notifyUserGroup = document.getElementById('notify-user-group');
+        const notifyUserCheckbox = document.getElementById('notify-user');
+        const ruleLength = document.getElementById('rule-length');
+        const ruleClasses = document.getElementById('rule-classes');
         const addUserBtn = document.getElementById('add-user-btn');
         
         // Delete-Modal-Elemente
@@ -396,6 +458,35 @@ if (!isAdmin()) {
         const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
         const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
         const deleteUserName = document.getElementById('delete-user-name');
+
+        function checkPasswordPolicy(password) {
+            const lengthOk = password.length >= 10 && password.length <= 128;
+            const classes = [
+                /[a-z]/.test(password),
+                /[A-Z]/.test(password),
+                /[0-9]/.test(password),
+                /[^a-zA-Z0-9]/.test(password)
+            ].filter(Boolean).length;
+            const classesOk = classes >= 3;
+            return { lengthOk, classesOk, valid: lengthOk && classesOk };
+        }
+
+        function setRuleState(element, isValid) {
+            element.classList.toggle('valid', isValid);
+            element.classList.toggle('invalid', !isValid);
+        }
+
+        userPassword.addEventListener('input', () => {
+            const value = userPassword.value;
+            if (!value) {
+                setRuleState(ruleLength, false);
+                setRuleState(ruleClasses, false);
+                return;
+            }
+            const policy = checkPasswordPolicy(value);
+            setRuleState(ruleLength, policy.lengthOk);
+            setRuleState(ruleClasses, policy.classesOk);
+        });
         
         // Event-Listener
         logoutBtn.addEventListener('click', logout);
@@ -429,7 +520,7 @@ if (!isAdmin()) {
                         'X-CSRF-Token': CSRF_TOKEN
                     }
                 });
-                window.location.href = '?page=login';
+                window.location.href = '?page=start';
             } catch (error) {
                 console.error('Logout fehlgeschlagen:', error);
             }
@@ -465,6 +556,17 @@ if (!isAdmin()) {
                 loadingElement.style.display = 'none';
             }
         }
+
+        function formatDateTime(value) {
+            if (!value) {
+                return '-';
+            }
+            const date = new Date(value.replace(' ', 'T'));
+            if (Number.isNaN(date.getTime())) {
+                return '-';
+            }
+            return date.toLocaleString('de-CH');
+        }
         
         // Benutzer rendern
         function renderUsers(users) {
@@ -484,9 +586,29 @@ if (!isAdmin()) {
                 // Rolle mit Badge
                 const roleCell = document.createElement('td');
                 const roleBadge = document.createElement('span');
-                roleBadge.className = user.role === 'admin' ? 'badge badge-admin' : 'badge badge-user';
-                roleBadge.textContent = user.role === 'admin' ? 'Administrator' : 'Benutzer';
+                if (user.role === 'super_admin') {
+                    roleBadge.className = 'badge badge-super-admin';
+                    roleBadge.textContent = 'Super-Admin';
+                } else if (user.role === 'admin') {
+                    roleBadge.className = 'badge badge-admin';
+                    roleBadge.textContent = 'Administrator';
+                } else {
+                    roleBadge.className = 'badge badge-user';
+                    roleBadge.textContent = 'Benutzer';
+                }
                 roleCell.appendChild(roleBadge);
+
+                // Status
+                const statusCell = document.createElement('td');
+                const statusBadge = document.createElement('span');
+                const isActive = parseInt(user.is_active, 10) === 1;
+                statusBadge.className = 'badge ' + (isActive ? 'badge-active' : 'badge-inactive');
+                statusBadge.textContent = isActive ? 'Aktiv' : 'Deaktiviert';
+                statusCell.appendChild(statusBadge);
+
+                // Letzte Aktivität
+                const lastActiveCell = document.createElement('td');
+                lastActiveCell.textContent = formatDateTime(user.last_active_at);
                 
                 // Registrierungsdatum
                 const dateCell = document.createElement('td');
@@ -495,6 +617,19 @@ if (!isAdmin()) {
                 
                 // Aktionen
                 const actionsCell = document.createElement('td');
+
+                if (!IS_SUPER_ADMIN && user.role === 'super_admin') {
+                    actionsCell.textContent = 'Nur Super-Admin';
+                    row.appendChild(nameCell);
+                    row.appendChild(emailCell);
+                    row.appendChild(roleCell);
+                    row.appendChild(statusCell);
+                    row.appendChild(lastActiveCell);
+                    row.appendChild(dateCell);
+                    row.appendChild(actionsCell);
+                    usersTbody.appendChild(row);
+                    return;
+                }
                 
                 // Bearbeiten-Button
                 const editBtn = document.createElement('button');
@@ -516,6 +651,8 @@ if (!isAdmin()) {
                 row.appendChild(nameCell);
                 row.appendChild(emailCell);
                 row.appendChild(roleCell);
+                row.appendChild(statusCell);
+                row.appendChild(lastActiveCell);
                 row.appendChild(dateCell);
                 row.appendChild(actionsCell);
                 
@@ -530,23 +667,38 @@ if (!isAdmin()) {
             userName.value = '';
             userEmail.value = '';
             userRole.value = 'user';
+            userIsActive.value = '1';
             userPassword.value = '';
-            userPassword.required = true;
+            userPassword.required = false;
+            userPassword.placeholder = 'Optional - leer = Passwort per Link setzen';
             userEmail.readOnly = false;
+            notifyUserCheckbox.checked = true;
+            notifyUserGroup.style.display = 'flex';
+            setRuleState(ruleLength, false);
+            setRuleState(ruleClasses, false);
             
             userModal.style.display = 'block';
         }
         
         // Modal zum Bearbeiten eines Benutzers anzeigen
         function showEditUserModal(user) {
+            if (!IS_SUPER_ADMIN && user.role === 'super_admin') {
+                showError('Super-Admin kann nur vom Super-Admin bearbeitet werden');
+                return;
+            }
             modalTitle.textContent = 'Benutzer bearbeiten';
             userId.value = user.id;
             userName.value = user.name;
             userEmail.value = user.email;
             userRole.value = user.role;
+            userIsActive.value = (parseInt(user.is_active, 10) === 1) ? '1' : '0';
             userPassword.value = '';
             userPassword.required = false;
+            userPassword.placeholder = 'Leer lassen, um nicht zu ändern';
             userEmail.readOnly = true;
+            notifyUserGroup.style.display = 'none';
+            setRuleState(ruleLength, false);
+            setRuleState(ruleClasses, false);
             
             userModal.style.display = 'block';
         }
@@ -564,31 +716,51 @@ if (!isAdmin()) {
             e.preventDefault();
             
             const id = userId.value;
-            const name = userName.value;
-            const email = userEmail.value;
+            const name = userName.value.trim();
+            const email = userEmail.value.trim();
             const role = userRole.value;
+            const isActive = parseInt(userIsActive.value, 10) === 1 ? 1 : 0;
             const password = userPassword.value;
+            const notifyUser = notifyUserCheckbox.checked;
             
             // Validierung
             if (!name || !email) {
                 showError('Name und E-Mail sind erforderlich');
                 return;
             }
-            
-            if (!id && !password) {
-                showError('Passwort ist erforderlich für neue Benutzer');
+            if (!userEmail.checkValidity()) {
+                showError('Bitte gib eine gültige E-Mail-Adresse ein');
                 return;
+            }
+            if (!id && password) {
+                const policy = checkPasswordPolicy(password);
+                if (!policy.valid) {
+                    showError('Passwort erfüllt die Anforderungen noch nicht');
+                    return;
+                }
+            }
+            if (!id && !password && !notifyUser) {
+                showError('Ohne Passwort muss "Benutzer informieren" aktiviert sein');
+                return;
+            }
+            if (id && password) {
+                const policy = checkPasswordPolicy(password);
+                if (!policy.valid) {
+                    showError('Passwort erfüllt die Anforderungen noch nicht');
+                    return;
+                }
             }
             
             loadingElement.style.display = 'block';
             errorMessage.style.display = 'none';
             
             try {
-                const userData = { name, role };
+                const userData = { name, role, is_active: isActive };
                 
                 if (id) {
                     // Benutzer aktualisieren
                     userData.id = id;
+                    userData.email = email;
                     if (password) {
                         userData.password = password;
                     }
@@ -612,21 +784,23 @@ if (!isAdmin()) {
                     // Neuen Benutzer erstellen
                     userData.email = email;
                     userData.password = password;
+                    userData.notify_user = notifyUser;
                     
-                    const response = await fetch(API_URL + 'register', {
+                    const response = await fetch(API_URL + 'admin-create-user', {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/json'
+                            'Content-Type': 'application/json',
+                            'X-CSRF-Token': CSRF_TOKEN
                         },
                         body: JSON.stringify(userData)
                     });
+                    const data = await response.json();
                     
                     if (!response.ok) {
-                        const data = await response.json();
                         throw new Error(data.error || 'Fehler beim Erstellen des Benutzers');
                     }
                     
-                    showSuccess('Benutzer erfolgreich erstellt');
+                    showSuccess(data.message || 'Benutzer erfolgreich erstellt');
                 }
                 
                 userModal.style.display = 'none';

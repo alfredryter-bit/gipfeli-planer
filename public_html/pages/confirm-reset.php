@@ -134,6 +134,18 @@ $token = isset($_GET['token']) ? htmlspecialchars($_GET['token']) : '';
             width: 0%;
             transition: width 0.3s, background-color 0.3s;
         }
+        .password-rules {
+            margin: 8px 0 0;
+            padding-left: 18px;
+            font-size: 12px;
+            color: #666;
+        }
+        .password-rules li.valid {
+            color: #155724;
+        }
+        .password-rules li.invalid {
+            color: #721c24;
+        }
     </style>
 </head>
 <body>
@@ -165,16 +177,20 @@ $token = isset($_GET['token']) ? htmlspecialchars($_GET['token']) : '';
                 
                 <div class="form-group">
                     <label for="password">Neues Passwort</label>
-                    <input type="password" id="password" name="password" required minlength="8">
+                    <input type="password" id="password" name="password" required minlength="10" maxlength="128">
                     <div class="password-strength">
                         <div class="password-strength-meter" id="password-strength-meter"></div>
                     </div>
-                    <small>Mindestens 8 Zeichen</small>
+                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <ul class="password-rules" id="password-rules">
+                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
+                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                    </ul>
                 </div>
                 
                 <div class="form-group">
                     <label for="confirm-password">Passwort bestätigen</label>
-                    <input type="password" id="confirm-password" name="confirm-password" required minlength="8">
+                    <input type="password" id="confirm-password" name="confirm-password" required minlength="10" maxlength="128">
                 </div>
                 
                 <button type="submit" id="submit-btn">Passwort aktualisieren</button>
@@ -195,6 +211,8 @@ $token = isset($_GET['token']) ? htmlspecialchars($_GET['token']) : '';
         const confirmPasswordInput = document.getElementById('confirm-password');
         const submitBtn = document.getElementById('submit-btn');
         const passwordStrengthMeter = document.getElementById('password-strength-meter');
+        const ruleLength = document.getElementById('rule-length');
+        const ruleClasses = document.getElementById('rule-classes');
         
         // Hilfsfunktion zum Anzeigen von Nachrichten
         function showMessage(message, type) {
@@ -210,7 +228,7 @@ $token = isset($_GET['token']) ? htmlspecialchars($_GET['token']) : '';
             let strength = 0;
             
             // Länge
-            if (password.length >= 8) strength += 25;
+            if (password.length >= 10) strength += 25;
             if (password.length >= 12) strength += 15;
             
             // Komplexität
@@ -226,6 +244,23 @@ $token = isset($_GET['token']) ? htmlspecialchars($_GET['token']) : '';
             
             // Maximum 100%
             return Math.min(strength, 100);
+        }
+
+        function checkPasswordPolicy(password) {
+            const lengthOk = password.length >= 10 && password.length <= 128;
+            const classes = [
+                /[a-z]/.test(password),
+                /[A-Z]/.test(password),
+                /[0-9]/.test(password),
+                /[^a-zA-Z0-9]/.test(password)
+            ].filter(Boolean).length;
+            const classesOk = classes >= 3;
+            return { lengthOk, classesOk, valid: lengthOk && classesOk };
+        }
+
+        function setRuleState(element, isValid) {
+            element.classList.toggle('valid', isValid);
+            element.classList.toggle('invalid', !isValid);
         }
         
         // Event-Listener für Passwort-Stärke
@@ -243,6 +278,10 @@ $token = isset($_GET['token']) ? htmlspecialchars($_GET['token']) : '';
             } else {
                 passwordStrengthMeter.style.backgroundColor = '#28a745'; // grün
             }
+
+            const policy = checkPasswordPolicy(password);
+            setRuleState(ruleLength, policy.lengthOk);
+            setRuleState(ruleClasses, policy.classesOk);
         });
         
         // Formular-Submit-Handler
@@ -254,8 +293,9 @@ $token = isset($_GET['token']) ? htmlspecialchars($_GET['token']) : '';
             const confirmPassword = confirmPasswordInput.value;
             
             // Formularvalidierung
-            if (password.length < 8) {
-                showMessage('Das Passwort muss mindestens 8 Zeichen lang sein.', 'danger');
+            const policy = checkPasswordPolicy(password);
+            if (!policy.valid) {
+                showMessage('Das Passwort erfüllt die Anforderungen noch nicht.', 'danger');
                 return;
             }
             

@@ -177,6 +177,7 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
             </form>
             
             <div class="links">
+                <a href="?page=start">Zur Startseite</a>
                 <a href="?page=register">Noch kein Konto? Registrieren</a>
                 <a href="?page=reset-password">Passwort vergessen?</a>
             </div>
@@ -187,12 +188,19 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
         // Login-Formular
         const loginForm = document.getElementById('login-form');
         const errorMessage = document.getElementById('error-message');
+        const emailInput = document.getElementById('email');
         
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            const email = document.getElementById('email').value;
+            const email = emailInput.value;
             const password = document.getElementById('password').value;
+
+            if (!emailInput.checkValidity()) {
+                errorMessage.textContent = 'Bitte gib eine gültige E-Mail-Adresse ein.';
+                errorMessage.style.display = 'block';
+                return;
+            }
             
             try {
                 const response = await fetch('?api=1&endpoint=login', {
