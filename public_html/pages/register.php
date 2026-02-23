@@ -10,13 +10,13 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
 $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
 ?>
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?php echo htmlspecialchars(t('meta.lang')); ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Registrieren - <?php echo htmlspecialchars($appName); ?></title>
+    <title><?php echo htmlspecialchars(t('auth.register')); ?> - <?php echo htmlspecialchars($appName); ?></title>
     <?php if (isset($config['app_favicon']) && !empty($config['app_favicon'])): ?>
-    <link rel="shortcut icon" href="<?php echo htmlspecialchars($config['app_favicon']); ?>" type="image/x-icon">
+    <link rel="shortcut icon" href="<?php echo htmlspecialchars(cacheBustUrl($config['app_favicon'])); ?>" type="image/x-icon">
     <?php endif; ?>
     <style>
         :root {
@@ -24,6 +24,7 @@ $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
             --primary-dark: <?php echo adjustBrightness($primaryColor, -20); ?>;
             --secondary-color: <?php echo $secondaryColor; ?>;
             --secondary-dark: <?php echo adjustBrightness($secondaryColor, -20); ?>;
+            --layout-width: 1100px;
         }
         
         body {
@@ -31,10 +32,74 @@ $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
             margin: 0;
             padding: 0;
             background-color: #f5f5f5;
+            min-height: 100vh;
+        }
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 10px 0;
+        }
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: var(--layout-width);
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .app-title-top {
+            color: white;
+            margin: 0;
+            font-size: 1.35rem;
+            line-height: 1.2;
+        }
+        .language-switch {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .language-switch a {
+            color: #fff;
+            text-decoration: none;
+            font-weight: bold;
+            opacity: 0.85;
+            font-size: 13px;
+        }
+        .language-switch a.active {
+            opacity: 1;
+            text-decoration: underline;
+        }
+        nav {
+            background-color: #f8f8f8;
+            border-bottom: 1px solid #e1e1e1;
+        }
+        nav ul {
+            display: flex;
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+            max-width: var(--layout-width);
+            margin: 0 auto;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        nav ul li {
+            padding: 10px 15px;
+        }
+        nav ul li a {
+            text-decoration: none;
+            color: #333;
+            font-size: 15px;
+        }
+        nav ul li a.active {
+            color: var(--primary-color);
+            font-weight: bold;
+        }
+        .page-shell {
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
             padding: 20px 0;
         }
         
@@ -172,54 +237,87 @@ $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
     </style>
 </head>
 <body>
+    <header>
+        <div class="header-content">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <?php if (!empty($appLogo)): ?>
+                <img src="<?php echo htmlspecialchars(cacheBustUrl($appLogo)); ?>" alt="Logo" height="40">
+                <?php endif; ?>
+                <h2 class="app-title-top"><?php echo htmlspecialchars($appName); ?></h2>
+            </div>
+            <div class="language-switch">
+                <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'de'])); ?>" class="<?php echo getCurrentLanguage() === 'de' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.de')); ?></a>
+                <span style="color: #fff; opacity: 0.7;">|</span>
+                <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'en'])); ?>" class="<?php echo getCurrentLanguage() === 'en' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.en')); ?></a>
+            </div>
+        </div>
+    </header>
+    <nav>
+        <ul>
+            <li><a href="?page=start"><?php echo htmlspecialchars(t('nav.start')); ?></a></li>
+            <li><a href="?page=login"><?php echo htmlspecialchars(t('nav.login')); ?></a></li>
+            <li><a href="?page=register" class="active"><?php echo htmlspecialchars(t('nav.register')); ?></a></li>
+            <li><a href="?page=reset-password"><?php echo htmlspecialchars(t('nav.reset')); ?></a></li>
+        </ul>
+    </nav>
+    <div class="page-shell">
     <div class="register-container">
         <!-- Farbiger Header nur auf der Box -->
         <div class="box-header">
             <?php if (!empty($appLogo)): ?>
-            <img src="<?php echo htmlspecialchars($appLogo); ?>" alt="Logo">
+            <img src="<?php echo htmlspecialchars(cacheBustUrl($appLogo)); ?>" alt="Logo">
             <?php endif; ?>
             <h1><?php echo htmlspecialchars($appName); ?></h1>
         </div>
         
         <div class="form-container">
-            <h2 class="app-name">Registrieren</h2>
-            <p class="description">Registriere dich für einen neuen Account</p>
+            <h2 class="app-name"><?php echo htmlspecialchars(t('auth.register')); ?></h2>
+            <p class="description"><?php echo htmlspecialchars(t('auth.register_description')); ?></p>
             
             <div id="error-message" class="alert alert-danger"></div>
             <div id="success-message" class="alert alert-success"></div>
             
             <form id="register-form">
                 <div class="form-group">
-                    <label for="name">Name</label>
+                    <label for="name"><?php echo htmlspecialchars(t('auth.name')); ?></label>
                     <input type="text" id="name" name="name" required>
                 </div>
                 
                 <div class="form-group">
-                    <label for="email">E-Mail-Adresse</label>
+                    <label for="email"><?php echo htmlspecialchars(t('auth.email')); ?></label>
                     <input type="email" id="email" name="email" required>
                 </div>
                 
                 <div class="form-group">
-                    <label for="password">Passwort</label>
+                    <label for="password"><?php echo htmlspecialchars(t('auth.password')); ?></label>
                     <input type="password" id="password" name="password" required minlength="10" maxlength="128">
-                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <small><?php echo htmlspecialchars(t('auth.password_requirements')); ?></small>
                     <ul class="password-rules" id="password-rules">
-                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
-                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                        <li id="rule-length" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_length')); ?></li>
+                        <li id="rule-classes" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_classes')); ?></li>
                     </ul>
                 </div>
                 
-                <button type="submit">Registrieren</button>
+                <button type="submit"><?php echo htmlspecialchars(t('auth.register')); ?></button>
             </form>
             
             <div class="links">
-                <a href="?page=start">Zur Startseite</a><br>
-                <a href="?page=login">Bereits registriert? Anmelden</a>
+                <a href="?page=start"><?php echo htmlspecialchars(t('auth.back_start')); ?></a><br>
+                <a href="?page=login"><?php echo htmlspecialchars(t('auth.register_existing')); ?></a>
             </div>
         </div>
     </div>
+    </div>
 
     <script>
+        const i18n = {
+            invalidEmail: <?php echo json_encode(t('auth.error.invalid_email')); ?>,
+            passwordRequirements: <?php echo json_encode(t('auth.error.password_requirements')); ?>,
+            registerSuccess: <?php echo json_encode(t('auth.register_success_default')); ?>,
+            registerFailed: <?php echo json_encode(t('auth.error.register_failed')); ?>,
+            genericError: <?php echo json_encode(t('auth.error.generic')); ?>
+        };
+
         // Register-Formular
         const registerForm = document.getElementById('register-form');
         const errorMessage = document.getElementById('error-message');
@@ -260,14 +358,14 @@ $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
             const password = passwordInput.value;
 
             if (!emailInput.checkValidity()) {
-                errorMessage.textContent = 'Bitte gib eine gültige E-Mail-Adresse ein.';
+                errorMessage.textContent = i18n.invalidEmail;
                 errorMessage.style.display = 'block';
                 successMessage.style.display = 'none';
                 return;
             }
             const policyState = checkPasswordPolicy(password);
             if (!policyState.valid) {
-                errorMessage.textContent = 'Passwort erfüllt die Anforderungen noch nicht.';
+                errorMessage.textContent = i18n.passwordRequirements;
                 errorMessage.style.display = 'block';
                 successMessage.style.display = 'none';
                 return;
@@ -288,7 +386,7 @@ $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
                 
                 if (data.success) {
                     // Erfolgreiche Registrierung
-                    successMessage.textContent = data.message || 'Registrierung erfolgreich! Du kannst dich jetzt anmelden.';
+                    successMessage.textContent = data.message || i18n.registerSuccess;
                     successMessage.style.display = 'block';
                     errorMessage.style.display = 'none';
                     registerForm.reset();
@@ -299,12 +397,12 @@ $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
                     }, 3000);
                 } else {
                     // Fehler anzeigen
-                    errorMessage.textContent = data.error || 'Registrierung fehlgeschlagen';
+                    errorMessage.textContent = data.error || i18n.registerFailed;
                     errorMessage.style.display = 'block';
                     successMessage.style.display = 'none';
                 }
             } catch (error) {
-                errorMessage.textContent = 'Es ist ein Fehler aufgetreten. Bitte versuche es später erneut.';
+                errorMessage.textContent = i18n.genericError;
                 errorMessage.style.display = 'block';
                 successMessage.style.display = 'none';
                 console.error('Registrierungs-Fehler:', error);
@@ -313,3 +411,4 @@ $allowedDomains = []; // Leeres Array - keine Domain-Einschränkung
     </script>
 </body>
 </html>
+

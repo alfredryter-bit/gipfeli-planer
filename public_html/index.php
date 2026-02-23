@@ -127,6 +127,135 @@ function debugLog($message) {
     }
     error_log((string)$message);
 }
+
+function getAppCacheBusterVersion() {
+    static $version = null;
+    if ($version !== null) {
+        return $version;
+    }
+
+    global $config;
+    $configured = trim((string)($config['asset_version'] ?? ''));
+    if ($configured !== '') {
+        $version = preg_replace('/[^a-zA-Z0-9._-]/', '', $configured);
+        return $version !== '' ? $version : '1';
+    }
+
+    $version = (string)@filemtime(__FILE__);
+    if ($version === '' || $version === '0') {
+        $version = date('YmdHis');
+    }
+    return $version;
+}
+
+function cacheBustUrl($path) {
+    $path = trim((string)$path);
+    if ($path === '') {
+        return '';
+    }
+    if (preg_match('#^(https?:)?//#i', $path) || stripos($path, 'data:') === 0) {
+        return $path;
+    }
+
+    $separator = (strpos($path, '?') !== false) ? '&' : '?';
+    return $path . $separator . 'v=' . rawurlencode(getAppCacheBusterVersion());
+}
+
+function getSupportedLanguages() {
+    $dir = APP_ROOT . DIRECTORY_SEPARATOR . 'i18n';
+    if (!is_dir($dir)) {
+        return ['de', 'en'];
+    }
+
+    $languages = [];
+    foreach (glob($dir . DIRECTORY_SEPARATOR . '*.php') ?: [] as $file) {
+        $code = strtolower((string)pathinfo($file, PATHINFO_FILENAME));
+        if (preg_match('/^[a-z]{2}(?:_[a-z]{2})?$/', $code)) {
+            $languages[] = $code;
+        }
+    }
+    $languages = array_values(array_unique($languages));
+    sort($languages);
+
+    if (empty($languages)) {
+        return ['de', 'en'];
+    }
+    return $languages;
+}
+
+function getCurrentLanguage() {
+    static $lang = null;
+    if ($lang !== null) {
+        return $lang;
+    }
+
+    $supported = getSupportedLanguages();
+    $requested = strtolower(trim((string)($_GET['lang'] ?? '')));
+    if (in_array($requested, $supported, true)) {
+        $_SESSION['lang'] = $requested;
+    }
+
+    $sessionLang = strtolower(trim((string)($_SESSION['lang'] ?? 'de')));
+    $lang = in_array($sessionLang, $supported, true) ? $sessionLang : 'de';
+    $_SESSION['lang'] = $lang;
+    return $lang;
+}
+
+function t($key, $fallback = null) {
+    $lang = getCurrentLanguage();
+    $translations = loadTranslationCatalog($lang);
+    if (isset($translations[$key])) {
+        return $translations[$key];
+    }
+
+    if ($lang !== 'de') {
+        $fallbackCatalog = loadTranslationCatalog('de');
+        if (isset($fallbackCatalog[$key])) {
+            return $fallbackCatalog[$key];
+        }
+    }
+
+    if ($fallback !== null) {
+        return $fallback;
+    }
+    return $key;
+}
+
+function loadTranslationCatalog($lang) {
+    static $catalogCache = [];
+    $lang = strtolower(trim((string)$lang));
+    if ($lang === '') {
+        $lang = 'de';
+    }
+
+    if (isset($catalogCache[$lang])) {
+        return $catalogCache[$lang];
+    }
+
+    $path = APP_ROOT . DIRECTORY_SEPARATOR . 'i18n' . DIRECTORY_SEPARATOR . $lang . '.php';
+    if (!is_file($path)) {
+        $catalogCache[$lang] = [];
+        return $catalogCache[$lang];
+    }
+
+    $data = include $path;
+    $catalogCache[$lang] = is_array($data) ? $data : [];
+    return $catalogCache[$lang];
+}
+
+function buildPageUrl(array $overrides = []) {
+    $query = $_GET;
+    unset($query['api'], $query['endpoint']);
+    foreach ($overrides as $key => $value) {
+        if ($value === null || $value === '') {
+            unset($query[$key]);
+        } else {
+            $query[$key] = $value;
+        }
+    }
+    $qs = http_build_query($query);
+    return $qs === '' ? '?' : ('?' . $qs);
+}
 // Datenbankverbindung herstellen
 function connectDB() {
     global $config;
@@ -378,6 +507,52 @@ function touchCurrentUserActivity() {
         $_SESSION['last_activity_touch'] = $now;
     } catch (PDOException $e) {
         // no-op
+    }
+}
+
+function destroyCurrentSession() {
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+    }
+    session_destroy();
+}
+
+function enforceCurrentUserIsActive($isApiRequest = false) {
+    if (!isLoggedIn()) {
+        return true;
+    }
+
+    try {
+        $pdo = connectDB();
+        if (!$pdo instanceof PDO) {
+            return true;
+        }
+
+        $stmt = $pdo->prepare('SELECT id, name, email, role, is_active FROM users WHERE id = ?');
+        $stmt->execute([(int)$_SESSION['user_id']]);
+        $user = $stmt->fetch();
+
+        if (!$user || (int)($user['is_active'] ?? 0) !== 1) {
+            destroyCurrentSession();
+            if ($isApiRequest) {
+                header('Content-Type: application/json');
+                http_response_code(401);
+                echo json_encode(['error' => 'Sitzung beendet, weil der Benutzer deaktiviert wurde']);
+                exit;
+            }
+            header('Location: ?page=login');
+            exit;
+        }
+
+        // Sessiondaten mit Datenbank synchron halten (z.B. bei Rollenänderung)
+        $_SESSION['user_name'] = $user['name'];
+        $_SESSION['user_email'] = $user['email'];
+        $_SESSION['user_role'] = $user['role'];
+        return true;
+    } catch (PDOException $e) {
+        return true;
     }
 }
 
@@ -757,6 +932,47 @@ function getAllUsers() {
         return ['users' => $stmt->fetchAll()];
     } catch (PDOException $e) {
         return ['error' => 'Interner Datenbankfehler'];
+    }
+}
+
+function notifyUsersEntryDeleted($date, array $deletedEntries, $actorName) {
+    try {
+        global $config;
+        $appName = $config['app_name'] ?? 'Gipfeli-Koordinator';
+
+        $pdo = connectDB();
+        $stmt = $pdo->prepare('SELECT email, name FROM users WHERE id != ?');
+        $stmt->execute([(int)$_SESSION['user_id']]);
+        $users = $stmt->fetchAll();
+
+        if (empty($users)) {
+            return true;
+        }
+
+        $formattedDate = date('d.m.Y', strtotime($date));
+        $subject = "Änderung Gipfeli-Ankündigung für $formattedDate";
+
+        $typeParts = [];
+        foreach ($deletedEntries as $entry) {
+            $typeValue = trim((string)($entry['type'] ?? ''));
+            if ($typeValue !== '') {
+                $typeParts[] = $typeValue;
+            }
+        }
+        $typeParts = array_values(array_unique($typeParts));
+        $typeLine = empty($typeParts) ? '' : ('Betroffene Sorten: ' . implode(', ', $typeParts) . '<br>');
+
+        foreach ($users as $user) {
+            $body = "Hallo {$user['name']},<br><br>";
+            $body .= htmlspecialchars((string)$actorName, ENT_QUOTES, 'UTF-8') . " hat einen Gipfeli-Eintrag für den $formattedDate gelöscht.<br>";
+            $body .= $typeLine;
+            $body .= "<br>Liebe Grüsse,<br>Dein $appName";
+            sendEmail($user['email'], $subject, $body);
+        }
+
+        return true;
+    } catch (PDOException $e) {
+        return false;
     }
 }
 
@@ -1420,8 +1636,8 @@ function saveEntry($data) {
         $entryId = uniqid('entry_');
         
         // Neuen Eintrag erstellen
-        $stmt = $pdo->prepare('INSERT INTO gipfeli_entries (id, date, user_id, name, type, timestamp) VALUES (?, ?, ?, ?, ?, NOW())');
-        $success = $stmt->execute([$entryId, $date, $userId, $name, $gipfeliType]);
+        $stmt = $pdo->prepare('INSERT INTO gipfeli_entries (id, date, user_id, name, type, notified_all, timestamp) VALUES (?, ?, ?, ?, ?, ?, NOW())');
+        $success = $stmt->execute([$entryId, $date, $userId, $name, $gipfeliType, 0]);
         
         if (!$success) {
             error_log("Database error when inserting: " . implode(", ", $stmt->errorInfo()));
@@ -1436,7 +1652,11 @@ function saveEntry($data) {
         
         // Benachrichtigung senden, falls gewünscht
         if ($sendNotification) {
-            notifyUsers($date, $name, $gipfeliType, $notificationMessage);
+            $notificationSent = notifyUsers($date, $name, $gipfeliType, $notificationMessage);
+            if ($notificationSent) {
+                $markStmt = $pdo->prepare('UPDATE gipfeli_entries SET notified_all = 1 WHERE id = ?');
+                $markStmt->execute([$entryId]);
+            }
             
             // Audit-Log für Benachrichtigung
             addAuditLog('send_notification', "Benachrichtigung für Gipfeli am $date gesendet", [
@@ -1473,7 +1693,7 @@ function deleteEntry($date, $entryId = null) {
         
         if ($entryId) {
             // Einen bestimmten Eintrag löschen
-            $stmt = $pdo->prepare('SELECT user_id, name, type FROM gipfeli_entries WHERE id = ?');
+            $stmt = $pdo->prepare('SELECT id, date, user_id, name, type, notified_all FROM gipfeli_entries WHERE id = ?');
             $stmt->execute([$entryId]);
             $entry = $stmt->fetch();
             
@@ -1489,6 +1709,8 @@ function deleteEntry($date, $entryId = null) {
                 return ['error' => 'Nicht berechtigt'];
             }
             
+            $deletedEntries = [$entry];
+
             // Alle Likes für diesen Eintrag löschen
             $stmt = $pdo->prepare('DELETE FROM gipfeli_likes WHERE entry_id = ?');
             $stmt->execute([$entryId]);
@@ -1499,24 +1721,24 @@ function deleteEntry($date, $entryId = null) {
         } else {
             // Alle eigenen Einträge für das Datum löschen (Admins dürfen alle)
             if (isAdmin()) {
-                $stmt = $pdo->prepare('SELECT id FROM gipfeli_entries WHERE date = ?');
+                $stmt = $pdo->prepare('SELECT id, date, name, type, notified_all FROM gipfeli_entries WHERE date = ?');
                 $stmt->execute([$date]);
             } else {
                 $stmt = $pdo->prepare('
-                    SELECT id FROM gipfeli_entries
+                    SELECT id, date, name, type, notified_all FROM gipfeli_entries
                     WHERE date = ?
                     AND (user_id = ? OR (user_id IS NULL AND name = ?))
                 ');
                 $stmt->execute([$date, (int)$_SESSION['user_id'], $_SESSION['user_name']]);
             }
-            $entries = $stmt->fetchAll();
+            $deletedEntries = $stmt->fetchAll();
 
-            if (empty($entries)) {
+            if (empty($deletedEntries)) {
                 http_response_code(404);
                 return ['error' => 'Keine löschbaren Einträge gefunden'];
             }
             
-            foreach ($entries as $entry) {
+            foreach ($deletedEntries as $entry) {
                 // Alle Likes für diesen Eintrag löschen
                 $stmt = $pdo->prepare('DELETE FROM gipfeli_likes WHERE entry_id = ?');
                 $stmt->execute([$entry['id']]);
@@ -1535,6 +1757,21 @@ function deleteEntry($date, $entryId = null) {
             }
         }
         
+        $hadNotification = false;
+        foreach ($deletedEntries as $deletedEntry) {
+            if ((int)($deletedEntry['notified_all'] ?? 0) === 1) {
+                $hadNotification = true;
+                break;
+            }
+        }
+
+        if ($hadNotification) {
+            notifyUsersEntryDeleted($date, $deletedEntries, (string)($_SESSION['user_name'] ?? 'Ein Benutzer'));
+            addAuditLog('send_notification', "Lösch-Benachrichtigung für Gipfeli am $date gesendet", [
+                'entry_id' => $entryId
+            ]);
+        }
+
         // Audit-Log
         addAuditLog('delete_entry', "Gipfeli-Eintrag gelöscht für $date" . ($entryId ? " (ID: $entryId)" : ""));
         
@@ -2226,6 +2463,7 @@ function setupDatabase() {
             `user_id` INT NULL,
             `name` VARCHAR(255) NOT NULL,
             `type` VARCHAR(255),
+            `notified_all` TINYINT(1) NOT NULL DEFAULT 0,
             `timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP,
             INDEX (`date`),
             INDEX (`user_id`),
@@ -2243,6 +2481,11 @@ function setupDatabase() {
                 SET g.user_id = u.id
                 WHERE g.user_id IS NULL
             ");
+        }
+
+        $notifiedColumn = $pdo->query("SHOW COLUMNS FROM gipfeli_entries LIKE 'notified_all'");
+        if ($notifiedColumn && $notifiedColumn->rowCount() === 0) {
+            $pdo->exec("ALTER TABLE gipfeli_entries ADD COLUMN notified_all TINYINT(1) NOT NULL DEFAULT 0 AFTER type");
         }
         
         $pdo->exec("CREATE TABLE IF NOT EXISTS `password_resets` (
@@ -2297,6 +2540,7 @@ function setupDatabase() {
 // Datenbank beim ersten Aufruf einrichten
 setupDatabase();
 touchCurrentUserActivity();
+enforceCurrentUserIsActive(isset($_GET['api']));
 
 // Wenn die Anfrage an die API geht, entsprechend verarbeiten
 if (isset($_GET['api'])) {

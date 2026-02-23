@@ -14,16 +14,16 @@ function saveBrandingUpload($fieldName, $prefix, array $allowedMimeTypes, $maxFi
     }
 
     if (!isset($_FILES[$fieldName]['error']) || $_FILES[$fieldName]['error'] !== UPLOAD_ERR_OK) {
-        return [null, 'Upload fehlgeschlagen.'];
+        return [null, t('branding.error.upload_failed')];
     }
 
     if ((int)$_FILES[$fieldName]['size'] > $maxFileSize) {
-        return [null, 'Datei ist zu groß (max. 2 MB).'];
+        return [null, t('branding.error.file_too_large')];
     }
 
     $tmpFile = $_FILES[$fieldName]['tmp_name'];
     if (!is_uploaded_file($tmpFile)) {
-        return [null, 'Ungültige Upload-Datei.'];
+        return [null, t('branding.error.invalid_upload')];
     }
 
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -33,12 +33,12 @@ function saveBrandingUpload($fieldName, $prefix, array $allowedMimeTypes, $maxFi
     }
 
     if (!isset($allowedMimeTypes[$mimeType])) {
-        return [null, 'Dateityp nicht erlaubt.'];
+        return [null, t('branding.error.type_not_allowed')];
     }
 
     $uploadDir = 'assets';
     if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
-        return [null, 'Upload-Verzeichnis konnte nicht erstellt werden.'];
+        return [null, t('branding.error.upload_dir')];
     }
 
     $fileName = sprintf(
@@ -49,7 +49,7 @@ function saveBrandingUpload($fieldName, $prefix, array $allowedMimeTypes, $maxFi
     );
 
     if (!move_uploaded_file($tmpFile, $fileName)) {
-        return [null, 'Datei konnte nicht gespeichert werden.'];
+        return [null, t('branding.error.file_save')];
     }
 
     return [$fileName, null];
@@ -68,7 +68,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_branding'])) {
     if (!isset($_POST['csrf_token']) || !validateCsrfToken($_POST['csrf_token'])) {
         http_response_code(403);
-        $errorMessage = "Ungültige Anfrage. Bitte Seite neu laden.";
+        $errorMessage = t('branding.error.invalid_request');
     } else {
     try {
         $pdo = connectDB();
@@ -91,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_branding'])) {
 
         if (!preg_match('/^#[0-9A-Fa-f]{6}$/', $newConfig['app_primary_color'])
             || !preg_match('/^#[0-9A-Fa-f]{6}$/', $newConfig['app_secondary_color'])) {
-            throw new RuntimeException('Ungültiger Farbwert.');
+            throw new RuntimeException(t('branding.error.invalid_color'));
         }
         
         // Logo-Datei hochladen, falls vorhanden
@@ -150,15 +150,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_branding'])) {
         }
         
         // Audit-Log
-        addAuditLog('update_branding', "Branding-Einstellungen aktualisiert");
+        addAuditLog('update_branding', t('branding.saved'));
         
-        $successMessage = "Branding-Einstellungen wurden erfolgreich gespeichert.";
+        $successMessage = t('branding.saved');
         
         // Seite neu laden, um die Änderungen zu sehen
         header("Location: ?page=admin-branding&success=1");
         exit;
     } catch (PDOException $e) {
-        $errorMessage = "Fehler beim Speichern der Einstellungen.";
+        $errorMessage = t('branding.error.save');
     } catch (RuntimeException $e) {
         $errorMessage = $e->getMessage();
     }
@@ -166,29 +166,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_branding'])) {
 }
 
 if (isset($_GET['success'])) {
-    $successMessage = "Branding-Einstellungen wurden erfolgreich gespeichert.";
+    $successMessage = t('branding.saved');
 }
 ?>
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?php echo htmlspecialchars(t('meta.lang')); ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Branding-Einstellungen - <?php echo htmlspecialchars($appName); ?></title>
+    <title><?php echo htmlspecialchars(t('branding.title')); ?> - <?php echo htmlspecialchars($appName); ?></title>
     <?php if (!empty($appFavicon)): ?>
-    <link rel="shortcut icon" href="<?php echo htmlspecialchars($appFavicon); ?>" type="image/x-icon">
+    <link rel="shortcut icon" href="<?php echo htmlspecialchars(cacheBustUrl($appFavicon)); ?>" type="image/x-icon">
     <?php endif; ?>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css">
     <style>
+        :root {
+            --layout-width: 1100px;
+        }
         body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
             background-color: #f5f5f5;
+            font-size: 14px;
         }
         
         .container {
-            max-width: 650px;
+            max-width: var(--layout-width);
             margin: 0 auto;
             padding: 20px;
         }
@@ -199,17 +203,11 @@ if (isset($_GET['success'])) {
             padding: 10px 0;
         }
         
-        header h2 {
-            color: white;
-            margin: 0;
-            font-size: 1.5rem;
-        }
-        
         .header-content {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            max-width: 650px;
+            max-width: var(--layout-width);
             margin: 0 auto;
             padding: 0 20px;
         }
@@ -222,12 +220,7 @@ if (isset($_GET['success'])) {
             display: flex;
             align-items: center;
         }
-        
-        .user-info span {
-            margin-right: 15px;
-        }
-        
-        nav {
+nav {
             background-color: #f8f8f8;
             border-bottom: 1px solid #e1e1e1;
         }
@@ -237,8 +230,11 @@ if (isset($_GET['success'])) {
             list-style-type: none;
             padding: 0;
             margin: 0;
-            max-width: 650px;
+            max-width: var(--layout-width);
             margin: 0 auto;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 4px;
         }
         
         nav ul li {
@@ -248,7 +244,7 @@ if (isset($_GET['success'])) {
         nav ul li a {
             text-decoration: none;
             color: #333;
-            font-size: 16px;
+            font-size: 15px;
         }
         
         nav ul li a:hover {
@@ -258,6 +254,12 @@ if (isset($_GET['success'])) {
         nav ul li a.active {
             color: <?php echo $primaryColor; ?>;
             font-weight: bold;
+        }
+        .app-title {
+            color: white;
+            margin: 0;
+            font-size: 1.35rem;
+            line-height: 1.2;
         }
         
         /* Dropdown-Menü für Benutzer-Aktionen */
@@ -270,9 +272,9 @@ if (isset($_GET['success'])) {
             position: absolute;
             right: 0;
             background-color: #f9f9f9;
-            min-width: 160px;
+            min-width: 180px;
             box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
-            z-index: 1;
+            z-index: 12;
             border-radius: 4px;
         }
         .user-dropdown-content a {
@@ -296,6 +298,8 @@ if (isset($_GET['success'])) {
             cursor: pointer;
             display: flex;
             align-items: center;
+            font-size: 16px;
+            padding: 0;
         }
         .user-dropdown-toggle .fa-user-circle {
             margin-right: 5px;
@@ -559,17 +563,22 @@ if (isset($_GET['success'])) {
             background-color: #f8d7da;
             color: #721c24;
         }
-        .btn-logout {
-            background-color: transparent;
-            border: 1px solid white;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
+        .language-switch {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-right: 10px;
         }
-        .btn-logout:hover {
-            background-color: rgba(255, 255, 255, 0.1);
+        .language-switch a {
+            color: #fff;
+            text-decoration: none;
+            font-weight: bold;
+            opacity: 0.85;
+            font-size: 13px;
+        }
+        .language-switch a.active {
+            opacity: 1;
+            text-decoration: underline;
         }
         @media (max-width: 900px) {
             .branding-grid {
@@ -583,11 +592,16 @@ if (isset($_GET['success'])) {
         <div class="header-content">
             <div style="display: flex; align-items: center; gap: 10px;">
                 <?php if (!empty($appLogo)): ?>
-                <img src="<?php echo htmlspecialchars($appLogo); ?>" alt="Logo" height="40">
+                <img src="<?php echo htmlspecialchars(cacheBustUrl($appLogo)); ?>" alt="Logo" height="40">
                 <?php endif; ?>
-                <h2><?php echo htmlspecialchars($appName); ?></h2>
+                <h2 class="app-title"><?php echo htmlspecialchars($appName); ?></h2>
             </div>
             <div class="user-info">
+                <div class="language-switch">
+                    <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'de'])); ?>" class="<?php echo getCurrentLanguage() === 'de' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.de')); ?></a>
+                    <span style="color: #fff; opacity: 0.7;">|</span>
+                    <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'en'])); ?>" class="<?php echo getCurrentLanguage() === 'en' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.en')); ?></a>
+                </div>
                 <div class="user-dropdown">
                     <button class="user-dropdown-toggle">
                         <i class="fas fa-user-circle"></i>
@@ -595,8 +609,8 @@ if (isset($_GET['success'])) {
                         <i class="fas fa-caret-down"></i>
                     </button>
                     <div class="user-dropdown-content">
-                        <a href="#" id="change-password-btn"><i class="fas fa-key"></i> Passwort ändern</a>
-                        <a href="#" id="logout-btn"><i class="fas fa-sign-out-alt"></i> Abmelden</a>
+                        <a href="#" id="change-password-btn"><i class="fas fa-key"></i> <?php echo htmlspecialchars(t('action.change_password')); ?></a>
+                        <a href="#" id="logout-btn"><i class="fas fa-sign-out-alt"></i> <?php echo htmlspecialchars(t('action.logout')); ?></a>
                     </div>
                 </div>
             </div>
@@ -605,19 +619,19 @@ if (isset($_GET['success'])) {
     
     <nav>
         <ul>
-            <li><a href="?page=main">Kalender</a></li>
-            <li><a href="?page=stats">Statistiken</a></li>
+            <li><a href="?page=main"><?php echo htmlspecialchars(t('nav.calendar')); ?></a></li>
+            <li><a href="?page=stats"><?php echo htmlspecialchars(t('nav.stats')); ?></a></li>
             <?php if (isAdmin()): ?>
-                <li><a href="?page=admin-users">Benutzerverwaltung</a></li>
-                <li><a href="?page=admin-audit">Audit-Log</a></li>
-                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> Einstellungen</a></li>
-                <li><a href="?page=admin-branding" class="active"><i class="fas fa-paint-brush"></i> Branding</a></li>
+                <li><a href="?page=admin-users"><?php echo htmlspecialchars(t('nav.users')); ?></a></li>
+                <li><a href="?page=admin-audit"><?php echo htmlspecialchars(t('nav.audit')); ?></a></li>
+                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> <?php echo htmlspecialchars(t('nav.settings')); ?></a></li>
+                <li><a href="?page=admin-branding" class="active"><i class="fas fa-paint-brush"></i> <?php echo htmlspecialchars(t('nav.branding')); ?></a></li>
             <?php endif; ?>
         </ul>
     </nav>
     
     <div class="container">
-        <h1>Branding-Einstellungen</h1>
+        <h1><?php echo htmlspecialchars(t('branding.title')); ?></h1>
         
         <?php if (isset($successMessage)): ?>
         <div class="status-message success-message">
@@ -636,65 +650,65 @@ if (isset($_GET['success'])) {
             <div class="branding-grid">
                 <section class="branding-panel">
                     <div class="form-group">
-                        <label for="app_name">Name der Anwendung:</label>
+                        <label for="app_name"><?php echo htmlspecialchars(t('branding.app_name')); ?>:</label>
                         <input type="text" id="app_name" name="app_name" value="<?php echo htmlspecialchars($appName); ?>" required>
-                        <div class="help-text">Wird in der Kopfzeile und als Browser-Titel angezeigt.</div>
+                        <div class="help-text"><?php echo htmlspecialchars(t('branding.app_name_help')); ?></div>
                     </div>
                     
                     <div class="form-group">
-                        <label for="app_primary_color">Primärfarbe:</label>
+                        <label for="app_primary_color"><?php echo htmlspecialchars(t('branding.primary_color')); ?>:</label>
                         <div class="color-input-group">
                             <input type="color" id="app_primary_color_picker" value="<?php echo htmlspecialchars($primaryColor); ?>">
                             <input type="text" id="app_primary_color" name="app_primary_color" value="<?php echo htmlspecialchars($primaryColor); ?>">
                         </div>
-                        <div class="help-text">Hauptfarbe für Kopfzeile, Buttons und Akzente.</div>
+                        <div class="help-text"><?php echo htmlspecialchars(t('branding.primary_color_help')); ?></div>
                     </div>
                     
                     <div class="form-group">
-                        <label for="app_secondary_color">Sekundärfarbe:</label>
+                        <label for="app_secondary_color"><?php echo htmlspecialchars(t('branding.secondary_color')); ?>:</label>
                         <div class="color-input-group">
                             <input type="color" id="app_secondary_color_picker" value="<?php echo htmlspecialchars($secondaryColor); ?>">
                             <input type="text" id="app_secondary_color" name="app_secondary_color" value="<?php echo htmlspecialchars($secondaryColor); ?>">
                         </div>
-                        <div class="help-text">Farbe für sekundäre Elemente wie "Abbrechen"-Buttons.</div>
+                        <div class="help-text"><?php echo htmlspecialchars(t('branding.secondary_color_help')); ?></div>
                     </div>
 
                     <div class="preview-section">
-                        <h3>Vorschau</h3>
+                        <h3><?php echo htmlspecialchars(t('branding.preview')); ?></h3>
                         <div class="preview-header">
                             <div class="preview-name" id="preview-name"><?php echo htmlspecialchars($appName); ?></div>
                         </div>
                         <div class="preview-buttons">
-                            <button type="button" class="preview-button primary-button" id="preview-primary-button">Primär-Button</button>
-                            <button type="button" class="preview-button secondary-button" id="preview-secondary-button">Sekundär-Button</button>
+                            <button type="button" class="preview-button primary-button" id="preview-primary-button"><?php echo htmlspecialchars(t('branding.preview_primary')); ?></button>
+                            <button type="button" class="preview-button secondary-button" id="preview-secondary-button"><?php echo htmlspecialchars(t('branding.preview_secondary')); ?></button>
                         </div>
                     </div>
                 </section>
 
                 <section class="branding-panel">
                     <div class="form-group">
-                        <label for="app_logo">Logo:</label>
+                        <label for="app_logo"><?php echo htmlspecialchars(t('branding.logo')); ?>:</label>
                         <input type="file" id="app_logo" name="app_logo" accept="image/png,image/jpeg,image/webp">
-                        <div class="help-text">Empfohlene Höhe: 30px, transparenter Hintergrund.</div>
+                        <div class="help-text"><?php echo htmlspecialchars(t('branding.logo_help')); ?></div>
                         
                         <?php if (!empty($appLogo)): ?>
                         <div class="preview-image">
-                            <span>Aktuelles Logo:</span>
-                            <img src="<?php echo htmlspecialchars($appLogo); ?>" alt="Logo">
+                            <span><?php echo htmlspecialchars(t('branding.logo_current')); ?>:</span>
+                            <img src="<?php echo htmlspecialchars(cacheBustUrl($appLogo)); ?>" alt="Logo">
                         </div>
                         <?php endif; ?>
                         <div id="logo-preview"></div>
                     </div>
                     
                     <div class="form-group">
-                        <label for="app_favicon">Favicon:</label>
+                        <label for="app_favicon"><?php echo htmlspecialchars(t('branding.favicon')); ?>:</label>
                         <input type="file" id="app_favicon" name="app_favicon" accept="image/x-icon,image/vnd.microsoft.icon,image/png">
-                        <div class="help-text">Das Icon im Browser-Tab. Format: .ico oder .png</div>
+                        <div class="help-text"><?php echo htmlspecialchars(t('branding.favicon_help')); ?></div>
                         
                         <?php if (!empty($appFavicon)): ?>
                         <div class="preview-image">
-                            <span>Aktuelles Favicon:</span>
-                            <img src="<?php echo htmlspecialchars($appFavicon); ?>" alt="Favicon">
+                            <span><?php echo htmlspecialchars(t('branding.favicon_current')); ?>:</span>
+                            <img src="<?php echo htmlspecialchars(cacheBustUrl($appFavicon)); ?>" alt="Favicon">
                         </div>
                         <?php endif; ?>
                         <div id="favicon-preview"></div>
@@ -704,21 +718,21 @@ if (isset($_GET['success'])) {
 
             <section class="branding-panel function-settings">
                 <div class="form-group">
-                    <label>Funktionseinstellungen:</label>
+                    <label><?php echo htmlspecialchars(t('branding.features')); ?>:</label>
                     <div class="checkbox-group">
                         <input type="checkbox" id="allow_multiple_entries" name="allow_multiple_entries" <?php echo $allowMultipleEntries ? 'checked' : ''; ?>>
-                        <label for="allow_multiple_entries">Mehrere Einträge pro Tag erlauben</label>
+                        <label for="allow_multiple_entries"><?php echo htmlspecialchars(t('branding.allow_multiple')); ?></label>
                     </div>
                     
                     <div class="checkbox-group">
                         <input type="checkbox" id="show_multiple_warning" name="show_multiple_warning" <?php echo $showMultipleWarning ? 'checked' : ''; ?>>
-                        <label for="show_multiple_warning">Warnung anzeigen, wenn bereits Einträge für diesen Tag existieren</label>
+                        <label for="show_multiple_warning"><?php echo htmlspecialchars(t('branding.warn_multiple')); ?></label>
                     </div>
                 </div>
             </section>
             
             <div class="form-actions">
-                <button type="submit" name="save_branding" class="submit-button">Einstellungen speichern</button>
+                <button type="submit" name="save_branding" class="submit-button"><?php echo htmlspecialchars(t('branding.save')); ?></button>
             </div>
         </form>
     </div>
@@ -727,31 +741,31 @@ if (isset($_GET['success'])) {
     <div id="password-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title">Passwort ändern</h3>
+                <h3 class="modal-title"><?php echo htmlspecialchars(t('password.change')); ?></h3>
                 <button class="close-modal" id="close-password-modal">&times;</button>
             </div>
             <div id="password-status" class="status" style="display: none;"></div>
             <form id="password-form" class="password-form">
                 <div class="form-group">
-                    <label for="current-password">Aktuelles Passwort:</label>
+                    <label for="current-password"><?php echo htmlspecialchars(t('password.current')); ?>:</label>
                     <input type="password" id="current-password" required>
                 </div>
                 <div class="form-group">
-                    <label for="new-password">Neues Passwort:</label>
+                    <label for="new-password"><?php echo htmlspecialchars(t('password.new')); ?>:</label>
                     <input type="password" id="new-password" required minlength="10" maxlength="128">
-                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <small><?php echo htmlspecialchars(t('auth.password_requirements')); ?></small>
                     <ul class="password-rules" id="password-rules">
-                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
-                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                        <li id="rule-length" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_length')); ?></li>
+                        <li id="rule-classes" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_classes')); ?></li>
                     </ul>
                 </div>
                 <div class="form-group">
-                    <label for="confirm-password">Passwort bestätigen:</label>
+                    <label for="confirm-password"><?php echo htmlspecialchars(t('password.confirm')); ?>:</label>
                     <input type="password" id="confirm-password" required>
                 </div>
                 <div class="password-actions">
-                    <button type="submit">Passwort ändern</button>
-                    <button type="button" class="btn-secondary" id="cancel-password-btn">Abbrechen</button>
+                    <button type="submit"><?php echo htmlspecialchars(t('password.change')); ?></button>
+                    <button type="button" class="btn-secondary" id="cancel-password-btn"><?php echo htmlspecialchars(t('common.cancel')); ?></button>
                 </div>
             </form>
         </div>
@@ -761,6 +775,16 @@ if (isset($_GET['success'])) {
         // API URL
         const API_URL = '?api=1&endpoint=';
         const CSRF_TOKEN = '<?php echo getCsrfToken(); ?>';
+        const i18n = {
+            passwordRequirements: <?php echo json_encode(t('password.error.requirements')); ?>,
+            passwordMismatch: <?php echo json_encode(t('password.error.mismatch')); ?>,
+            passwordChangeFailed: <?php echo json_encode(t('password.error.change_failed')); ?>,
+            passwordChanged: <?php echo json_encode(t('password.changed_success')); ?>,
+            logoNew: <?php echo json_encode(t('branding.logo_new')); ?>,
+            logoAlt: <?php echo json_encode(t('branding.logo_alt')); ?>,
+            faviconNew: <?php echo json_encode(t('branding.favicon_new')); ?>,
+            faviconAlt: <?php echo json_encode(t('branding.favicon_alt')); ?>
+        };
         
         // Verknüpfung der Farbauswähler
         const primaryColorPicker = document.getElementById('app_primary_color_picker');
@@ -844,12 +868,12 @@ if (isset($_GET['success'])) {
                 // Validierung
                 const policy = checkPasswordPolicy(newPassword);
                 if (!policy.valid) {
-                    showPasswordStatus('Das neue Passwort erfüllt die Anforderungen noch nicht.', 'error');
+                    showPasswordStatus(i18n.passwordRequirements, 'error');
                     return;
                 }
                 
                 if (newPassword !== confirmPassword) {
-                    showPasswordStatus('Die Passwörter stimmen nicht überein.', 'error');
+                    showPasswordStatus(i18n.passwordMismatch, 'error');
                     return;
                 }
                 
@@ -918,14 +942,14 @@ if (isset($_GET['success'])) {
                 const data = await response.json();
                 
                 if (!response.ok) {
-                    throw new Error(data.error || 'Fehler beim Ändern des Passworts');
+                    throw new Error(data.error || i18n.passwordChangeFailed);
                 }
                 
-                showPasswordStatus('Passwort erfolgreich geändert!', 'success');
+                showPasswordStatus(i18n.passwordChanged, 'success');
                 passwordForm.reset();
             } catch (error) {
                 showPasswordStatus(error.message, 'error');
-                console.error('Fehler beim Ändern des Passworts:', error);
+                console.error(i18n.passwordChangeFailed, error);
             }
         }
         
@@ -940,7 +964,7 @@ if (isset($_GET['success'])) {
                 });
                 window.location.href = '?page=start';
             } catch (error) {
-                console.error('Logout fehlgeschlagen:', error);
+                console.error('Logout failed:', error);
             }
         }
 
@@ -986,8 +1010,8 @@ if (isset($_GET['success'])) {
                     const preview = document.getElementById('logo-preview');
                     preview.innerHTML = `
                         <div class="preview-image">
-                            <span>Neues Logo:</span>
-                            <img src="${e.target.result}" alt="Logo-Vorschau">
+                            <span>${i18n.logoNew}:</span>
+                            <img src="${e.target.result}" alt="${i18n.logoAlt}">
                         </div>
                     `;
                 };
@@ -1003,8 +1027,8 @@ if (isset($_GET['success'])) {
                     const preview = document.getElementById('favicon-preview');
                     preview.innerHTML = `
                         <div class="preview-image">
-                            <span>Neues Favicon:</span>
-                            <img src="${e.target.result}" alt="Favicon-Vorschau">
+                            <span>${i18n.faviconNew}:</span>
+                            <img src="${e.target.result}" alt="${i18n.faviconAlt}">
                         </div>
                     `;
                 };
@@ -1014,3 +1038,4 @@ if (isset($_GET['success'])) {
     </script>
 </body>
 </html>
+

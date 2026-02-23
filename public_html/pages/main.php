@@ -11,13 +11,13 @@ $allowMultipleEntries = $config['allow_multiple_entries'] ?? false;
 $showMultipleWarning = $config['show_multiple_warning'] ?? true;
 ?>
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?php echo htmlspecialchars(t('meta.lang')); ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($appName); ?></title>
     <?php if (isset($config['app_favicon']) && !empty($config['app_favicon'])): ?>
-    <link rel="shortcut icon" href="<?php echo htmlspecialchars($config['app_favicon']); ?>" type="image/x-icon">
+    <link rel="shortcut icon" href="<?php echo htmlspecialchars(cacheBustUrl($config['app_favicon'])); ?>" type="image/x-icon">
     <?php endif; ?>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css">
     <style>
@@ -26,6 +26,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             --primary-color-dark: <?php echo adjustBrightness($primaryColor, -20); ?>;
             --secondary-color: <?php echo $secondaryColor; ?>;
             --secondary-color-dark: <?php echo adjustBrightness($secondaryColor, -20); ?>;
+            --layout-width: 1100px;
         }
         
         body {
@@ -49,9 +50,9 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            max-width: 650px;
+            max-width: var(--layout-width);
             margin: 0 auto;
-            padding: 0 15px;
+            padding: 0 20px;
         }
         .brand {
             display: flex;
@@ -72,10 +73,24 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             display: flex;
             align-items: center;
         }
-        .user-info span {
+        .language-switch {
+            display: flex;
+            align-items: center;
+            gap: 4px;
             margin-right: 10px;
         }
-        .user-dropdown {
+        .language-switch a {
+            color: #fff;
+            text-decoration: none;
+            font-weight: bold;
+            opacity: 0.85;
+            font-size: 13px;
+        }
+        .language-switch a.active {
+            opacity: 1;
+            text-decoration: underline;
+        }
+.user-dropdown {
             position: relative;
             display: inline-block;
         }
@@ -84,9 +99,9 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             position: absolute;
             right: 0;
             background-color: #f9f9f9;
-            min-width: 160px;
+            min-width: 180px;
             box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
-            z-index: 1;
+            z-index: 12;
             border-radius: 4px;
         }
         .user-dropdown-content a {
@@ -110,7 +125,8 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             cursor: pointer;
             display: flex;
             align-items: center;
-            font-size: 16px; /* Anpassen an die Größe in stats.php, normalerweise 14px oder 16px */
+            font-size: 16px;
+            padding: 0;
         }
         .user-dropdown-toggle .fa-user-circle {
             margin-right: 5px;
@@ -124,8 +140,11 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             list-style-type: none;
             padding: 0;
             margin: 0;
-            max-width: 650px;
+            max-width: var(--layout-width);
             margin: 0 auto;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 4px;
         }
         nav ul li {
             padding: 10px 15px;
@@ -133,6 +152,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         nav ul li a {
             text-decoration: none;
             color: #333;
+            font-size: 15px;
         }
         nav ul li a:hover {
             color: var(--primary-color);
@@ -140,7 +160,12 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         nav ul li a.active {
             color: var(--primary-color);
             font-weight: bold;
-            font-size: 16px; /* Größere Schrift */
+        }
+        .app-title {
+            color: white;
+            margin: 0;
+            font-size: 1.35rem;
+            line-height: 1.2;
         }
         .calendar {
             background-color: white;
@@ -583,11 +608,16 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         <div class="header-content">
     <div class="brand">
         <?php if (!empty($appLogo)): ?>
-        <img src="<?php echo htmlspecialchars($appLogo); ?>" alt="Logo" class="logo">
+        <img src="<?php echo htmlspecialchars(cacheBustUrl($appLogo)); ?>" alt="Logo" class="logo">
         <?php endif; ?>
-        <h2 style="color: white; margin: 0; font-size: 1.5rem;"><?php echo htmlspecialchars($appName); ?></h2>
+        <h2 class="app-title"><?php echo htmlspecialchars($appName); ?></h2>
     </div>
     <div class="user-info">
+                <div class="language-switch">
+                    <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'de'])); ?>" class="<?php echo getCurrentLanguage() === 'de' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.de')); ?></a>
+                    <span style="color: #fff; opacity: 0.7;">|</span>
+                    <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'en'])); ?>" class="<?php echo getCurrentLanguage() === 'en' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.en')); ?></a>
+                </div>
                 <div class="user-dropdown">
                     <button class="user-dropdown-toggle">
                         <i class="fas fa-user-circle"></i>
@@ -595,8 +625,8 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                         <i class="fas fa-caret-down"></i>
                     </button>
                     <div class="user-dropdown-content">
-                        <a href="#" id="change-password-btn"><i class="fas fa-key"></i> Passwort ändern</a>
-                        <a href="#" id="logout-btn"><i class="fas fa-sign-out-alt"></i> Abmelden</a>
+                        <a href="#" id="change-password-btn"><i class="fas fa-key"></i> <?php echo htmlspecialchars(t('action.change_password')); ?></a>
+                        <a href="#" id="logout-btn"><i class="fas fa-sign-out-alt"></i> <?php echo htmlspecialchars(t('action.logout')); ?></a>
                     </div>
                 </div>
             </div>
@@ -605,34 +635,34 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
     
     <nav>
         <ul>
-            <li><a href="?page=main" class="active">Kalender</a></li>
-            <li><a href="?page=stats">Statistiken</a></li>
+            <li><a href="?page=main" class="active"><?php echo htmlspecialchars(t('nav.calendar')); ?></a></li>
+            <li><a href="?page=stats"><?php echo htmlspecialchars(t('nav.stats')); ?></a></li>
             <?php if (isAdmin()): ?>
-                <li><a href="?page=admin-users">Benutzerverwaltung</a></li>
-                <li><a href="?page=admin-audit">Audit-Log</a></li>
-                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> Einstellungen</a></li>
-                <li><a href="?page=admin-branding"><i class="fas fa-paint-brush"></i> Branding</a></li>
+                <li><a href="?page=admin-users"><?php echo htmlspecialchars(t('nav.users')); ?></a></li>
+                <li><a href="?page=admin-audit"><?php echo htmlspecialchars(t('nav.audit')); ?></a></li>
+                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> <?php echo htmlspecialchars(t('nav.settings')); ?></a></li>
+                <li><a href="?page=admin-branding"><i class="fas fa-paint-brush"></i> <?php echo htmlspecialchars(t('nav.branding')); ?></a></li>
             <?php endif; ?>
         </ul>
     </nav>
     
     <div class="container">
-        <div id="loading" class="loading">Lädt Daten...</div>
+        <div id="loading" class="loading"><?php echo htmlspecialchars(t('main.loading')); ?></div>
         
         <div class="status" id="status-message"></div>
         
         <div class="calendar">
             <div class="month-header">
                 <button class="month-nav" id="prev-month">&lt;</button>
-                <span id="current-month">März 2025</span>
+                <span id="current-month"></span>
                 <button class="month-nav" id="next-month">&gt;</button>
             </div>
             <div class="weekdays">
-                <div>Mo</div>
-                <div>Di</div>
-                <div>Mi</div>
-                <div>Do</div>
-                <div>Fr</div>
+                <div><?php echo htmlspecialchars(t('main.weekday.mo')); ?></div>
+                <div><?php echo htmlspecialchars(t('main.weekday.di')); ?></div>
+                <div><?php echo htmlspecialchars(t('main.weekday.mi')); ?></div>
+                <div><?php echo htmlspecialchars(t('main.weekday.do')); ?></div>
+                <div><?php echo htmlspecialchars(t('main.weekday.fr')); ?></div>
             </div>
             <div class="days" id="calendar-days">
                 <!-- Kalendertage werden per JavaScript eingefügt -->
@@ -640,7 +670,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         </div>
         
         <div class="instructions">
-            <p><strong>Anleitung:</strong> Klicke auf einen Arbeitstag, um dich einzutragen, wenn du Gipfeli mitbringen möchtest. <?php if ($allowMultipleEntries): ?>Es können mehrere Personen am gleichen Tag Gipfeli mitbringen.<?php else: ?>Damit vermeiden wir, dass mehrere Personen am gleichen Tag Gipfeli mitbringen.<?php endif; ?></p>
+            <p><strong><?php echo htmlspecialchars(t('main.instructions.title')); ?>:</strong> <?php echo htmlspecialchars($allowMultipleEntries ? t('main.instructions.allow_multiple') : t('main.instructions.single')); ?></p>
         </div>
     </div>
     
@@ -648,30 +678,30 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
     <div id="gipfeli-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title">Gipfeli eintragen</h3>
+                <h3 class="modal-title"><?php echo htmlspecialchars(t('main.modal.add_title')); ?></h3>
                 <button class="close-modal" id="close-modal">&times;</button>
             </div>
             <div id="warning-message" class="status warning" style="display: none;"></div>
             <form id="gipfeli-form">
                 <input type="hidden" id="selected-date">
                 <div>
-                    <label for="name">Dein Name:</label>
+                    <label for="name"><?php echo htmlspecialchars(t('main.label.your_name')); ?>:</label>
                     <input type="text" id="name" value="<?php echo htmlspecialchars($_SESSION['user_name']); ?>" readonly>
                 </div>
                 <div>
-                    <label for="gipfeli-type">Gipfeli-Sorte:</label>
-                    <input type="text" id="gipfeli-type" placeholder="z.B. Schoggi, Mandel, Klassisch">
+                    <label for="gipfeli-type"><?php echo htmlspecialchars(t('main.label.type')); ?>:</label>
+                    <input type="text" id="gipfeli-type" placeholder="<?php echo htmlspecialchars(t('main.placeholder.type')); ?>">
                 </div>
                 <div class="checkbox-group">
                     <input type="checkbox" id="notify-others" checked>
-                    <label for="notify-others">Andere Benutzer benachrichtigen</label>
+                    <label for="notify-others"><?php echo htmlspecialchars(t('main.label.notify_others')); ?></label>
                 </div>
                 <div id="notification-message-container" style="display: block;">
-                    <label for="notification-message">Nachricht (optional):</label>
-                    <textarea id="notification-message" placeholder="Zusätzliche Informationen für die Benachrichtigung..."></textarea>
+                    <label for="notification-message"><?php echo htmlspecialchars(t('main.label.message_optional')); ?>:</label>
+                    <textarea id="notification-message" placeholder="<?php echo htmlspecialchars(t('main.placeholder.message')); ?>"></textarea>
                 </div>
                 <div>
-                    <button type="submit">Eintragen</button>
+                    <button type="submit"><?php echo htmlspecialchars(t('main.action.submit_entry')); ?></button>
                 </div>
             </form>
         </div>
@@ -681,14 +711,14 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
     <div id="entries-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title" id="entries-modal-title">Gipfeli-Einträge</h3>
+                <h3 class="modal-title" id="entries-modal-title"><?php echo htmlspecialchars(t('main.modal.entries_title')); ?></h3>
                 <button class="close-modal" id="close-entries-modal">&times;</button>
             </div>
             <div id="entries-list" class="entries-list">
                 <!-- Einträge werden hier eingefügt -->
             </div>
             <div class="action-buttons">
-                <button id="add-to-day-btn">Weiteren Eintrag hinzufügen</button>
+                <button id="add-to-day-btn"><?php echo htmlspecialchars(t('main.action.add_another')); ?></button>
             </div>
         </div>
     </div>
@@ -697,31 +727,31 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
     <div id="password-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title">Passwort ändern</h3>
+                <h3 class="modal-title"><?php echo htmlspecialchars(t('password.change')); ?></h3>
                 <button class="close-modal" id="close-password-modal">&times;</button>
             </div>
             <div id="password-status" class="status" style="display: none;"></div>
             <form id="password-form" class="password-form">
                 <div class="form-group">
-                    <label for="current-password">Aktuelles Passwort:</label>
+                    <label for="current-password"><?php echo htmlspecialchars(t('password.current')); ?>:</label>
                     <input type="password" id="current-password" required>
                 </div>
                 <div class="form-group">
-                    <label for="new-password">Neues Passwort:</label>
+                    <label for="new-password"><?php echo htmlspecialchars(t('password.new')); ?>:</label>
                     <input type="password" id="new-password" required minlength="10" maxlength="128">
-                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <small><?php echo htmlspecialchars(t('auth.password_requirements')); ?></small>
                     <ul class="password-rules" id="password-rules">
-                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
-                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                        <li id="rule-length" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_length')); ?></li>
+                        <li id="rule-classes" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_classes')); ?></li>
                     </ul>
                 </div>
                 <div class="form-group">
-                    <label for="confirm-password">Passwort bestätigen:</label>
+                    <label for="confirm-password"><?php echo htmlspecialchars(t('password.confirm')); ?>:</label>
                     <input type="password" id="confirm-password" required>
                 </div>
                 <div class="password-actions">
-                    <button type="submit">Passwort ändern</button>
-                    <button type="button" class="btn-secondary" id="cancel-password-btn">Abbrechen</button>
+                    <button type="submit"><?php echo htmlspecialchars(t('password.change')); ?></button>
+                    <button type="button" class="btn-secondary" id="cancel-password-btn"><?php echo htmlspecialchars(t('common.cancel')); ?></button>
                 </div>
             </form>
         </div>
@@ -735,6 +765,59 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         // API URL
         const API_URL = '?api=1&endpoint=';
         const CSRF_TOKEN = '<?php echo getCsrfToken(); ?>';
+        const i18n = {
+            locale: <?php echo json_encode(t('locale.date')); ?>,
+            keyboardHint: <?php echo json_encode(t('main.keyboard_hint')); ?>,
+            monthNames: [
+                <?php echo json_encode(t('main.month.jan')); ?>,
+                <?php echo json_encode(t('main.month.feb')); ?>,
+                <?php echo json_encode(t('main.month.mar')); ?>,
+                <?php echo json_encode(t('main.month.apr')); ?>,
+                <?php echo json_encode(t('main.month.may')); ?>,
+                <?php echo json_encode(t('main.month.jun')); ?>,
+                <?php echo json_encode(t('main.month.jul')); ?>,
+                <?php echo json_encode(t('main.month.aug')); ?>,
+                <?php echo json_encode(t('main.month.sep')); ?>,
+                <?php echo json_encode(t('main.month.oct')); ?>,
+                <?php echo json_encode(t('main.month.nov')); ?>,
+                <?php echo json_encode(t('main.month.dec')); ?>
+            ],
+            weekdayNames: [
+                <?php echo json_encode(t('main.weekday.mo')); ?>,
+                <?php echo json_encode(t('main.weekday.di')); ?>,
+                <?php echo json_encode(t('main.weekday.mi')); ?>,
+                <?php echo json_encode(t('main.weekday.do')); ?>,
+                <?php echo json_encode(t('main.weekday.fr')); ?>
+            ],
+            loadError: <?php echo json_encode(t('main.status.load_error')); ?>,
+            saveSuccess: <?php echo json_encode(t('main.status.save_ok')); ?>,
+            saveError: <?php echo json_encode(t('main.status.save_error')); ?>,
+            deleteSuccess: <?php echo json_encode(t('main.status.delete_ok')); ?>,
+            deleteError: <?php echo json_encode(t('main.status.delete_error')); ?>,
+            deleteConfirm: <?php echo json_encode(t('main.confirm.delete')); ?>,
+            likeError: <?php echo json_encode(t('main.status.like_error')); ?>,
+            invalidResponse: <?php echo json_encode(t('main.status.invalid_response')); ?>,
+            passwordRequirements: <?php echo json_encode(t('password.error.requirements')); ?>,
+            passwordMismatch: <?php echo json_encode(t('password.error.mismatch')); ?>,
+            passwordChangeFailed: <?php echo json_encode(t('main.password.change_failed')); ?>,
+            passwordChanged: <?php echo json_encode(t('password.changed_success')); ?>,
+            deleteEntry: <?php echo json_encode(t('main.action.delete_entry')); ?>,
+            classicEntry: <?php echo json_encode(t('main.entry.classic')); ?>,
+            entriesForDate: <?php echo json_encode(t('main.entries_for_date')); ?>,
+            moreEntries: <?php echo json_encode(t('main.more_entries')); ?>,
+            warningTemplate: <?php echo json_encode(t('main.warning.entries')); ?>,
+            warningSingle: <?php echo json_encode(t('main.warning.entry_single')); ?>,
+            warningPlural: <?php echo json_encode(t('main.warning.entry_plural')); ?>,
+            addForDate: <?php echo json_encode(t('main.modal.add_for_date')); ?>,
+            editForDate: <?php echo json_encode(t('main.modal.edit_for_date')); ?>,
+            easterMessages: [
+                <?php echo json_encode(t('main.easter.1')); ?>,
+                <?php echo json_encode(t('main.easter.2')); ?>,
+                <?php echo json_encode(t('main.easter.3')); ?>,
+                <?php echo json_encode(t('main.easter.4')); ?>,
+                <?php echo json_encode(t('main.easter.5')); ?>
+            ]
+        };
         
         // Aktuelle Daten
         let currentDate = new Date();
@@ -773,10 +856,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         const ruleClasses = document.getElementById('rule-classes');
         
         // Monatsnamen
-        const monthNames = [
-            'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
-            'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
-        ];
+        const monthNames = i18n.monthNames;
         
         // Event-Listener für Benachrichtigungsoptionen
         notifyCheckbox.addEventListener('change', function() {
@@ -832,7 +912,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         // Tastaturhinweis hinzufügen
         const keyboardHint = document.createElement('div');
         keyboardHint.className = 'keyboard-hint';
-        keyboardHint.textContent = 'Verwendung der Pfeiltasten links/rechts für Navigation';
+        keyboardHint.textContent = i18n.keyboardHint;
         document.querySelector('.calendar').after(keyboardHint);
         
         // Hilfsfunktion zur Statusanzeige
@@ -870,7 +950,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 });
                 window.location.href = '?page=start';
             } catch (error) {
-                console.error('Logout fehlgeschlagen:', error);
+                console.error('Logout failed:', error);
             }
         }
         
@@ -882,7 +962,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             try {
                 const response = await fetch(API_URL + 'entries');
                 if (!response.ok) {
-                    throw new Error('Fehler beim Laden der Daten: ' + response.status);
+                    throw new Error(i18n.loadError + ': ' + response.status);
                 }
                 
                 // Rohdaten speichern
@@ -909,8 +989,8 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 // Kalender neu rendern
                 renderCalendar();
             } catch (error) {
-                showStatus('Fehler beim Laden der Daten: ' + error.message, 'error');
-                console.error('Fehler beim Laden der Daten:', error);
+                showStatus(i18n.loadError + ': ' + error.message, 'error');
+                console.error(i18n.loadError, error);
             } finally {
                 loadingElement.style.display = 'none';
                 calendarDays.classList.remove('loading-data');
@@ -975,14 +1055,14 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 });
                 
                 if (!response.ok) {
-                    throw new Error('Fehler beim Speichern des Eintrags: ' + response.status);
+                    throw new Error(i18n.saveError + ': ' + response.status);
                 }
                 
                 const result = await response.json();
                 console.log("Server response:", result);
                 
                 if (!result.success || !result.entry) {
-                    throw new Error('Ungültige Serverantwort');
+                    throw new Error(i18n.invalidResponse);
                 }
                 
                 // Die gipfeliData korrekt aktualisieren
@@ -1005,14 +1085,14 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 
                 // Neurendern forcieren
                 renderCalendar();
-                showStatus('Eintrag erfolgreich gespeichert!', 'success');
+                showStatus(i18n.saveSuccess, 'success');
                 
                 // Statt die Einträge direkt nach dem Speichern neu zu laden, laden wir alle Einträge neu
                 await loadEntries();
                 
             } catch (error) {
-                showStatus('Fehler beim Speichern: ' + error.message, 'error');
-                console.error('Fehler beim Speichern:', error);
+                showStatus(i18n.saveError + ': ' + error.message, 'error');
+                console.error(i18n.saveError, error);
             } finally {
                 loadingElement.style.display = 'none';
             }
@@ -1020,7 +1100,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         
         // Gipfeli-Eintrag löschen
         async function deleteEntry(date, entryId) {
-            if (!confirm('Möchtest du diesen Eintrag wirklich löschen?')) {
+            if (!confirm(i18n.deleteConfirm)) {
                 return;
             }
             
@@ -1037,7 +1117,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 });
                 
                 if (!response.ok) {
-                    throw new Error('Fehler beim Löschen des Eintrags');
+                    throw new Error(i18n.deleteError);
                 }
                 
                 // Aktualisiere die lokalen Daten
@@ -1061,7 +1141,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 }
                 
                 renderCalendar();
-                showStatus('Eintrag erfolgreich gelöscht!', 'success');
+                showStatus(i18n.deleteSuccess, 'success');
                 
                 // Schließe das Einträge-Modal und öffne es neu, falls es geöffnet war
                 if (entriesModal.style.display === 'block') {
@@ -1073,8 +1153,8 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                     }
                 }
             } catch (error) {
-                showStatus('Fehler beim Löschen: ' + error.message, 'error');
-                console.error('Fehler beim Löschen:', error);
+                showStatus(i18n.deleteError + ': ' + error.message, 'error');
+                console.error(i18n.deleteError, error);
             } finally {
                 loadingElement.style.display = 'none';
             }
@@ -1097,7 +1177,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 });
                 
                 if (!response.ok) {
-                    throw new Error('Fehler beim Verarbeiten des Likes');
+                    throw new Error(i18n.likeError);
                 }
                 
                 await loadEntries(); // Neu laden, um aktualisierte Like-Infos zu erhalten
@@ -1107,8 +1187,8 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                     showEntriesForDay(date);
                 }
             } catch (error) {
-                showStatus('Fehler: ' + error.message, 'error');
-                console.error('Fehler beim Liken:', error);
+                showStatus(error.message, 'error');
+                console.error(i18n.likeError, error);
             } finally {
                 loadingElement.style.display = 'none';
             }
@@ -1134,14 +1214,14 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 const data = await response.json();
                 
                 if (!response.ok) {
-                    throw new Error(data.error || 'Fehler beim Ändern des Passworts');
+                    throw new Error(data.error || i18n.passwordChangeFailed);
                 }
                 
-                showPasswordStatus('Passwort erfolgreich geändert!', 'success');
+                showPasswordStatus(i18n.passwordChanged, 'success');
                 passwordForm.reset();
             } catch (error) {
                 showPasswordStatus(error.message, 'error');
-                console.error('Fehler beim Ändern des Passworts:', error);
+                console.error(i18n.passwordChangeFailed, error);
             } finally {
                 loadingElement.style.display = 'none';
             }
@@ -1191,12 +1271,12 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             // Validierung
             const policy = checkPasswordPolicy(newPassword);
             if (!policy.valid) {
-                showPasswordStatus('Das neue Passwort erfüllt die Anforderungen noch nicht.', 'error');
+                showPasswordStatus(i18n.passwordRequirements, 'error');
                 return;
             }
             
             if (newPassword !== confirmPassword) {
-                showPasswordStatus('Die Passwörter stimmen nicht überein.', 'error');
+                showPasswordStatus(i18n.passwordMismatch, 'error');
                 return;
             }
             
@@ -1295,7 +1375,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             today.setHours(0, 0, 0, 0);
             
             // Wochentage-Namen
-            const weekdayNames = ['Mo', 'Di', 'Mi', 'Do', 'Fr'];
+            const weekdayNames = i18n.weekdayNames;
             
             // Leere Zellen für Tage vor dem ersten Tag des Monats
             for (let i = 0; i < firstWeekday; i++) {
@@ -1377,7 +1457,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                         const moreIndicator = document.createElement('div');
                         moreIndicator.className = 'gipfeli-entry';
                         moreIndicator.innerHTML = `<div class="gipfeli-info">
-                            <span>+ ${hiddenCount} weitere</span>
+                            <span>${i18n.moreEntries.replace('%d', hiddenCount)}</span>
                         </div>`;
                         entriesContainer.appendChild(moreIndicator);
                     }
@@ -1410,7 +1490,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 const deleteBtn = document.createElement('button');
                 deleteBtn.className = 'delete-btn';
                 deleteBtn.innerHTML = '<i class="fas fa-times"></i>';
-                deleteBtn.title = 'Eintrag löschen';
+                deleteBtn.title = i18n.deleteEntry;
                 deleteBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     deleteEntry(dateString, entry.id);
@@ -1489,8 +1569,8 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             const entries = Array.isArray(gipfeliData[dateString]) ? gipfeliData[dateString] : [gipfeliData[dateString]];
             
             const date = new Date(dateString);
-            const formattedDate = date.toLocaleDateString('de-CH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-            entriesModalTitle.textContent = `Gipfeli-Einträge für ${formattedDate}`;
+            const formattedDate = date.toLocaleDateString(i18n.locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            entriesModalTitle.textContent = i18n.entriesForDate.replace('%s', formattedDate);
             
             // Speichere das Datum für den "Weiteren Eintrag hinzufügen"-Button
             addToDayBtn.dataset.date = dateString;
@@ -1518,7 +1598,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                     const deleteBtn = document.createElement('button');
                     deleteBtn.className = 'delete-btn';
                     deleteBtn.innerHTML = '<i class="fas fa-times"></i>';
-                    deleteBtn.title = 'Eintrag löschen';
+                    deleteBtn.title = i18n.deleteEntry;
                     deleteBtn.style.marginLeft = '5px';
                     deleteBtn.addEventListener('click', () => {
                         deleteEntry(dateString, entry.id);
@@ -1530,7 +1610,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 entryItem.appendChild(entryHeader);
                 
                 const entryType = document.createElement('div');
-                entryType.textContent = entry.type || 'Klassische Gipfeli';
+                entryType.textContent = entry.type || i18n.classicEntry;
                 entryItem.appendChild(entryType);
                 
                 const entryLikes = document.createElement('div');
@@ -1591,7 +1671,8 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 warningMessage.style.display = 'none';
                 if (gipfeliData[dateString] && showMultipleWarning) {
                     const entryCount = countEntries(dateString);
-                    warningMessage.textContent = `Achtung: Es gibt bereits ${entryCount} ${entryCount === 1 ? 'Eintrag' : 'Einträge'} für diesen Tag.`;
+                    const noun = entryCount === 1 ? i18n.warningSingle : i18n.warningPlural;
+                    warningMessage.textContent = i18n.warningTemplate.replace('%d', entryCount).replace('%s', noun);
                     warningMessage.style.display = 'block';
                 }
                 
@@ -1611,7 +1692,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
        // Aktuellen Monat als Titel in der Datums-Auswahl
         function updateModalTitle(date) {
             const selectedDate = new Date(date);
-            const formattedDate = selectedDate.toLocaleDateString('de-CH', { 
+            const formattedDate = selectedDate.toLocaleDateString(i18n.locale, { 
                 weekday: 'long', 
                 year: 'numeric', 
                 month: 'long', 
@@ -1620,7 +1701,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             
             // Setze den Titel im Modal
             const modalTitle = document.querySelector('.modal-title');
-            modalTitle.textContent = `Gipfeli eintragen für ${formattedDate}`;
+            modalTitle.textContent = i18n.addForDate.replace('%s', formattedDate);
             
             // Füge Monatsinformation in einem kleinen Untertitel hinzu
             const modalSubtitle = document.createElement('small');
@@ -1664,7 +1745,13 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 
                 // Bearbeitungsmodus im Titel anzeigen
                 const modalTitle = document.querySelector('.modal-title');
-                modalTitle.textContent = modalTitle.textContent.replace('eintragen', 'bearbeiten');
+                const selectedDateText = new Date(dateString).toLocaleDateString(i18n.locale, {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+                modalTitle.textContent = i18n.editForDate.replace('%s', selectedDateText);
                 
                 modal.style.display = 'block';
             }
@@ -1772,13 +1859,7 @@ function activateEasterEgg() {
     }
     
     // Lustige Nachricht
-    const messages = [
-        "🎉 GIPFELI-REGEN!!! 🎉", 
-        "🥐 Es regnet Gipfeli! 🥐", 
-        "Achtung! Gipfeli-Lawine!", 
-        "Gipfeli-Apokalypse ist da!",
-        "Heute: Wolkig mit Aussicht auf Gipfeli"
-    ];
+    const messages = i18n.easterMessages;
     const randomMessage = messages[Math.floor(Math.random() * messages.length)];
     
     const message = document.createElement('div');
@@ -1822,3 +1903,4 @@ function activateEasterEgg() {
     </script>
 </body>
 </html>
+

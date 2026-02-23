@@ -8,13 +8,13 @@ $primaryColor = $config['app_primary_color'] ?? '#e74c3c';
 $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
 ?>
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?php echo htmlspecialchars(t('meta.lang')); ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Passwort zurücksetzen - <?php echo htmlspecialchars($appName); ?></title>
+    <title><?php echo htmlspecialchars(t('auth.reset')); ?> - <?php echo htmlspecialchars($appName); ?></title>
     <?php if (isset($config['app_favicon']) && !empty($config['app_favicon'])): ?>
-    <link rel="shortcut icon" href="<?php echo htmlspecialchars($config['app_favicon']); ?>" type="image/x-icon">
+    <link rel="shortcut icon" href="<?php echo htmlspecialchars(cacheBustUrl($config['app_favicon'])); ?>" type="image/x-icon">
     <?php endif; ?>
     <style>
         :root {
@@ -22,6 +22,7 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
             --primary-dark: <?php echo adjustBrightness($primaryColor, -20); ?>;
             --secondary-color: <?php echo $secondaryColor; ?>;
             --secondary-dark: <?php echo adjustBrightness($secondaryColor, -20); ?>;
+            --layout-width: 1100px;
         }
         
         body {
@@ -29,10 +30,75 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
             margin: 0;
             padding: 0;
             background-color: #f5f5f5;
+            min-height: 100vh;
+        }
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 10px 0;
+        }
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: var(--layout-width);
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .app-title-top {
+            color: white;
+            margin: 0;
+            font-size: 1.35rem;
+            line-height: 1.2;
+        }
+        .language-switch {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .language-switch a {
+            color: #fff;
+            text-decoration: none;
+            font-weight: bold;
+            opacity: 0.85;
+            font-size: 13px;
+        }
+        .language-switch a.active {
+            opacity: 1;
+            text-decoration: underline;
+        }
+        nav {
+            background-color: #f8f8f8;
+            border-bottom: 1px solid #e1e1e1;
+        }
+        nav ul {
+            display: flex;
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+            max-width: var(--layout-width);
+            margin: 0 auto;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        nav ul li {
+            padding: 10px 15px;
+        }
+        nav ul li a {
+            text-decoration: none;
+            color: #333;
+            font-size: 15px;
+        }
+        nav ul li a.active {
+            color: var(--primary-color);
+            font-weight: bold;
+        }
+        .page-shell {
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            padding: 30px 0;
         }
         
         .reset-container {
@@ -150,39 +216,73 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
     </style>
 </head>
 <body>
+    <header>
+        <div class="header-content">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <?php if (!empty($appLogo)): ?>
+                <img src="<?php echo htmlspecialchars(cacheBustUrl($appLogo)); ?>" alt="Logo" height="40">
+                <?php endif; ?>
+                <h2 class="app-title-top"><?php echo htmlspecialchars($appName); ?></h2>
+            </div>
+            <div class="language-switch">
+                <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'de'])); ?>" class="<?php echo getCurrentLanguage() === 'de' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.de')); ?></a>
+                <span style="color: #fff; opacity: 0.7;">|</span>
+                <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'en'])); ?>" class="<?php echo getCurrentLanguage() === 'en' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.en')); ?></a>
+            </div>
+        </div>
+    </header>
+    <nav>
+        <ul>
+            <li><a href="?page=start"><?php echo htmlspecialchars(t('nav.start')); ?></a></li>
+            <li><a href="?page=login"><?php echo htmlspecialchars(t('nav.login')); ?></a></li>
+            <li><a href="?page=register"><?php echo htmlspecialchars(t('nav.register')); ?></a></li>
+            <li><a href="?page=reset-password" class="active"><?php echo htmlspecialchars(t('nav.reset')); ?></a></li>
+        </ul>
+    </nav>
+    <div class="page-shell">
     <div class="reset-container">
         <!-- Farbiger Header nur auf der Box -->
         <div class="box-header">
             <?php if (!empty($appLogo)): ?>
-            <img src="<?php echo htmlspecialchars($appLogo); ?>" alt="Logo">
+            <img src="<?php echo htmlspecialchars(cacheBustUrl($appLogo)); ?>" alt="Logo">
             <?php endif; ?>
             <h1><?php echo htmlspecialchars($appName); ?></h1>
         </div>
         
         <div class="form-container">
-            <h2 class="app-name">Passwort zurücksetzen</h2>
-            <p class="description">Gib deine E-Mail-Adresse ein, um einen Link zum Zurücksetzen zu erhalten</p>
+            <h2 class="app-name"><?php echo htmlspecialchars(t('auth.reset')); ?></h2>
+            <p class="description"><?php echo htmlspecialchars(t('auth.reset_description')); ?></p>
             
             <div id="error-message" class="alert alert-danger"></div>
             <div id="success-message" class="alert alert-success"></div>
             
             <form id="reset-form">
                 <div class="form-group">
-                    <label for="email">E-Mail-Adresse</label>
+                    <label for="email"><?php echo htmlspecialchars(t('auth.email')); ?></label>
                     <input type="email" id="email" name="email" required>
                 </div>
                 
-                <button type="submit" id="submit-btn">Link zum Zurücksetzen senden</button>
+                <button type="submit" id="submit-btn"><?php echo htmlspecialchars(t('auth.reset_send_link')); ?></button>
             </form>
             
             <div class="links">
-                <a href="?page=start">Zur Startseite</a><br><br>
-                <a href="?page=login">Zurück zur Anmeldung</a>
+                <a href="?page=start"><?php echo htmlspecialchars(t('auth.back_start')); ?></a><br><br>
+                <a href="?page=login"><?php echo htmlspecialchars(t('auth.back_login')); ?></a>
             </div>
         </div>
     </div>
+    </div>
 
     <script>
+        const i18n = {
+            sending: <?php echo json_encode(t('auth.reset_sending')); ?>,
+            sendLink: <?php echo json_encode(t('auth.reset_send_link')); ?>,
+            invalidEmail: <?php echo json_encode(t('auth.error.invalid_email')); ?>,
+            resetSuccess: <?php echo json_encode(t('auth.reset_success_default')); ?>,
+            resetError: <?php echo json_encode(t('auth.error.reset_failed')); ?>,
+            genericError: <?php echo json_encode(t('auth.error.generic')); ?>
+        };
+
         // Reset-Formular
         const resetForm = document.getElementById('reset-form');
         const errorMessage = document.getElementById('error-message');
@@ -195,15 +295,15 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
             
             // Button deaktivieren, um mehrfaches Absenden zu verhindern
             submitBtn.disabled = true;
-            submitBtn.textContent = 'Wird gesendet...';
+            submitBtn.textContent = i18n.sending;
             
             const email = emailInput.value;
             if (!emailInput.checkValidity()) {
-                errorMessage.textContent = 'Bitte gib eine gültige E-Mail-Adresse ein.';
+                errorMessage.textContent = i18n.invalidEmail;
                 errorMessage.style.display = 'block';
                 successMessage.style.display = 'none';
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Link zum Zurücksetzen senden';
+                submitBtn.textContent = i18n.sendLink;
                 return;
             }
             
@@ -220,27 +320,28 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
                 
                 if (data.success) {
                     // Erfolgreiche Anfrage
-                    successMessage.textContent = data.message || 'Falls die E-Mail registriert ist, wurde ein Link zum Zurücksetzen des Passworts gesendet.';
+                    successMessage.textContent = data.message || i18n.resetSuccess;
                     successMessage.style.display = 'block';
                     errorMessage.style.display = 'none';
                     resetForm.reset();
                 } else {
                     // Fehler anzeigen
-                    errorMessage.textContent = data.error || 'Fehler beim Zurücksetzen des Passworts';
+                    errorMessage.textContent = data.error || i18n.resetError;
                     errorMessage.style.display = 'block';
                     successMessage.style.display = 'none';
                 }
             } catch (error) {
-                errorMessage.textContent = 'Es ist ein Fehler aufgetreten. Bitte versuche es später erneut.';
+                errorMessage.textContent = i18n.genericError;
                 errorMessage.style.display = 'block';
                 successMessage.style.display = 'none';
                 console.error('Passwort-Reset-Fehler:', error);
             } finally {
                 // Button wieder aktivieren
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Link zum Zurücksetzen senden';
+                submitBtn.textContent = i18n.sendLink;
             }
         });
     </script>
 </body>
 </html>
+

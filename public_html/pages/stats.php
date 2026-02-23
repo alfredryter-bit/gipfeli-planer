@@ -3,21 +3,25 @@
 // Diese Seite zeigt Statistiken über Gipfeli-Einträge
 ?>
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?php echo htmlspecialchars(t('meta.lang')); ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gipfeli-Statistiken - <?php echo htmlspecialchars($config['app_name']); ?></title>
+    <title><?php echo htmlspecialchars(t('stats.title')); ?> - <?php echo htmlspecialchars($config['app_name']); ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css">
     <?php if (!empty($config['app_favicon'])): ?>
-    <link rel="icon" href="<?php echo htmlspecialchars($config['app_favicon']); ?>">
+    <link rel="icon" href="<?php echo htmlspecialchars(cacheBustUrl($config['app_favicon'])); ?>">
     <?php endif; ?>
     <style>
+        :root {
+            --layout-width: 1100px;
+        }
         body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
             background-color: #f5f5f5;
+            font-size: 14px;
         }
         .container {
             max-width: 650px; /* Fixe Breite für den Container */
@@ -33,26 +37,35 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            max-width: 650px;
+            max-width: var(--layout-width);
             margin: 0 auto;
             padding: 0 20px;
         }
         h1, h2, h3 {
             color: #4a4a4a;
         }
-        header h2 {
-            color: white;
-            margin: 0;
-            font-size: 1.5rem;
-        }
         .user-info {
             display: flex;
             align-items: center;
         }
-        .user-info span {
-            margin-right: 15px;
+        .language-switch {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-right: 10px;
         }
-        nav {
+        .language-switch a {
+            color: #fff;
+            text-decoration: none;
+            font-weight: bold;
+            opacity: 0.85;
+            font-size: 13px;
+        }
+        .language-switch a.active {
+            opacity: 1;
+            text-decoration: underline;
+        }
+nav {
             background-color: #f8f8f8;
             border-bottom: 1px solid #e1e1e1;
         }
@@ -61,8 +74,11 @@
             list-style-type: none;
             padding: 0;
             margin: 0;
-            max-width: 650px;
+            max-width: var(--layout-width);
             margin: 0 auto;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 4px;
         }
         nav ul li {
             padding: 10px 15px;
@@ -70,7 +86,7 @@
         nav ul li a {
             text-decoration: none;
             color: #333;
-            font-size: 16px;
+            font-size: 15px;
         }
         nav ul li a:hover {
             color: <?php echo htmlspecialchars($config['app_primary_color']); ?>;
@@ -78,6 +94,12 @@
         nav ul li a.active {
             color: <?php echo htmlspecialchars($config['app_primary_color']); ?>;
             font-weight: bold;
+        }
+        .app-title {
+            color: white;
+            margin: 0;
+            font-size: 1.35rem;
+            line-height: 1.2;
         }
         .stats-container {
             display: grid;
@@ -184,9 +206,9 @@
             position: absolute;
             right: 0;
             background-color: #f9f9f9;
-            min-width: 160px;
+            min-width: 180px;
             box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
-            z-index: 1;
+            z-index: 12;
             border-radius: 4px;
         }
         .user-dropdown-content a {
@@ -210,6 +232,8 @@
             cursor: pointer;
             display: flex;
             align-items: center;
+            font-size: 16px;
+            padding: 0;
         }
         .user-dropdown-toggle .fa-user-circle {
             margin-right: 5px;
@@ -348,11 +372,16 @@
         <div class="header-content">
             <div style="display: flex; align-items: center; gap: 10px;">
                 <?php if (!empty($config['app_logo'])): ?>
-                <img src="<?php echo htmlspecialchars($config['app_logo']); ?>" alt="Logo" height="40">
+                <img src="<?php echo htmlspecialchars(cacheBustUrl($config['app_logo'])); ?>" alt="Logo" height="40">
                 <?php endif; ?>
-                <h2><?php echo htmlspecialchars($config['app_name']); ?></h2>
+                <h2 class="app-title"><?php echo htmlspecialchars($config['app_name']); ?></h2>
             </div>
             <div class="user-info">
+                <div class="language-switch">
+                    <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'de'])); ?>" class="<?php echo getCurrentLanguage() === 'de' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.de')); ?></a>
+                    <span style="color: #fff; opacity: 0.7;">|</span>
+                    <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'en'])); ?>" class="<?php echo getCurrentLanguage() === 'en' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.en')); ?></a>
+                </div>
                 <div class="user-dropdown">
                     <button class="user-dropdown-toggle">
                         <i class="fas fa-user-circle"></i>
@@ -360,8 +389,8 @@
                         <i class="fas fa-caret-down"></i>
                     </button>
                     <div class="user-dropdown-content">
-                        <a href="#" id="change-password-btn"><i class="fas fa-key"></i> Passwort ändern</a>
-                        <a href="#" id="logout-btn"><i class="fas fa-sign-out-alt"></i> Abmelden</a>
+                        <a href="#" id="change-password-btn"><i class="fas fa-key"></i> <?php echo htmlspecialchars(t('action.change_password')); ?></a>
+                        <a href="#" id="logout-btn"><i class="fas fa-sign-out-alt"></i> <?php echo htmlspecialchars(t('action.logout')); ?></a>
                     </div>
                 </div>
             </div>
@@ -370,22 +399,22 @@
     
     <nav>
         <ul>
-            <li><a href="?page=main">Kalender</a></li>
-            <li><a href="?page=stats" class="active">Statistiken</a></li>
+            <li><a href="?page=main"><?php echo htmlspecialchars(t('nav.calendar')); ?></a></li>
+            <li><a href="?page=stats" class="active"><?php echo htmlspecialchars(t('nav.stats')); ?></a></li>
             <?php if (isAdmin()): ?>
-                <li><a href="?page=admin-users">Benutzerverwaltung</a></li>
-                <li><a href="?page=admin-audit">Audit-Log</a></li>
-                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> Einstellungen</a></li>
-                <li><a href="?page=admin-branding"><i class="fas fa-paint-brush"></i> Branding</a></li>
+                <li><a href="?page=admin-users"><?php echo htmlspecialchars(t('nav.users')); ?></a></li>
+                <li><a href="?page=admin-audit"><?php echo htmlspecialchars(t('nav.audit')); ?></a></li>
+                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> <?php echo htmlspecialchars(t('nav.settings')); ?></a></li>
+                <li><a href="?page=admin-branding"><i class="fas fa-paint-brush"></i> <?php echo htmlspecialchars(t('nav.branding')); ?></a></li>
             <?php endif; ?>
         </ul>
     </nav>
     
     <div class="container">
-        <h1>Gipfeli-Statistiken</h1>
+        <h1><?php echo htmlspecialchars(t('stats.title')); ?></h1>
         
         <div id="loading" class="loading">
-            <i class="fas fa-spinner fa-spin"></i> Lade Statistiken...
+            <i class="fas fa-spinner fa-spin"></i> <?php echo htmlspecialchars(t('stats.loading')); ?>
         </div>
         
         <div id="error" class="error" style="display: none;"></div>
@@ -399,31 +428,31 @@
     <div id="password-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title">Passwort ändern</h3>
+                <h3 class="modal-title"><?php echo htmlspecialchars(t('password.change')); ?></h3>
                 <button class="close-modal" id="close-password-modal">&times;</button>
             </div>
             <div id="password-status" class="status" style="display: none;"></div>
             <form id="password-form" class="password-form">
                 <div class="form-group">
-                    <label for="current-password">Aktuelles Passwort:</label>
+                    <label for="current-password"><?php echo htmlspecialchars(t('password.current')); ?>:</label>
                     <input type="password" id="current-password" required>
                 </div>
                 <div class="form-group">
-                    <label for="new-password">Neues Passwort:</label>
+                    <label for="new-password"><?php echo htmlspecialchars(t('password.new')); ?>:</label>
                     <input type="password" id="new-password" required minlength="10" maxlength="128">
-                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <small><?php echo htmlspecialchars(t('auth.password_requirements')); ?></small>
                     <ul class="password-rules" id="password-rules">
-                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
-                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                        <li id="rule-length" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_length')); ?></li>
+                        <li id="rule-classes" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_classes')); ?></li>
                     </ul>
                 </div>
                 <div class="form-group">
-                    <label for="confirm-password">Passwort bestätigen:</label>
+                    <label for="confirm-password"><?php echo htmlspecialchars(t('password.confirm')); ?>:</label>
                     <input type="password" id="confirm-password" required>
                 </div>
                 <div class="password-actions">
-                    <button type="submit">Passwort ändern</button>
-                    <button type="button" class="btn-secondary" id="cancel-password-btn">Abbrechen</button>
+                    <button type="submit"><?php echo htmlspecialchars(t('password.change')); ?></button>
+                    <button type="button" class="btn-secondary" id="cancel-password-btn"><?php echo htmlspecialchars(t('common.cancel')); ?></button>
                 </div>
             </form>
         </div>
@@ -433,6 +462,21 @@
         // API URL
         const API_URL = '?api=1&endpoint=';
         const CSRF_TOKEN = '<?php echo getCsrfToken(); ?>';
+        const i18n = {
+            passwordRequirements: <?php echo json_encode(t('password.error.requirements')); ?>,
+            passwordMismatch: <?php echo json_encode(t('password.error.mismatch')); ?>,
+            passwordChangeFailed: <?php echo json_encode(t('password.error.change_failed')); ?>,
+            passwordChanged: <?php echo json_encode(t('password.changed_success')); ?>,
+            logoutFailed: <?php echo json_encode(t('auth.error.login_failed')); ?>,
+            statsLoadError: <?php echo json_encode(t('stats.error.load')); ?>,
+            statsNoData: <?php echo json_encode(t('stats.error.none')); ?>,
+            statsUsersTitle: <?php echo json_encode(t('stats.users.title')); ?>,
+            statsTypesTitle: <?php echo json_encode(t('stats.types.title')); ?>,
+            statsDaysTitle: <?php echo json_encode(t('stats.days.title')); ?>,
+            likes: <?php echo json_encode(t('stats.likes')); ?>,
+            noData: <?php echo json_encode(t('common.no_data')); ?>,
+            classic: <?php echo json_encode(t('stats.classic')); ?>
+        };
         
         // DOM-Elemente
         const loadingElement = document.getElementById('loading');
@@ -508,12 +552,12 @@
                 // Validierung
                 const policy = checkPasswordPolicy(newPassword);
                 if (!policy.valid) {
-                    showPasswordStatus('Das neue Passwort erfüllt die Anforderungen noch nicht.', 'error');
+                    showPasswordStatus(i18n.passwordRequirements, 'error');
                     return;
                 }
                 
                 if (newPassword !== confirmPassword) {
-                    showPasswordStatus('Die Passwörter stimmen nicht überein.', 'error');
+                    showPasswordStatus(i18n.passwordMismatch, 'error');
                     return;
                 }
                 
@@ -564,10 +608,10 @@
                 const data = await response.json();
                 
                 if (!response.ok) {
-                    throw new Error(data.error || 'Fehler beim Ändern des Passworts');
+                    throw new Error(data.error || i18n.passwordChangeFailed);
                 }
                 
-                showPasswordStatus('Passwort erfolgreich geändert!', 'success');
+                showPasswordStatus(i18n.passwordChanged, 'success');
                 passwordForm.reset();
             } catch (error) {
                 showPasswordStatus(error.message, 'error');
@@ -588,7 +632,7 @@
                 });
                 window.location.href = '?page=start';
             } catch (error) {
-                console.error('Logout fehlgeschlagen:', error);
+                console.error(i18n.logoutFailed, error);
             }
         }
         
@@ -601,15 +645,15 @@
             try {
                 const response = await fetch(API_URL + 'stats');
                 if (!response.ok) {
-                    throw new Error('Fehler beim Laden der Statistiken');
+                    throw new Error(i18n.statsLoadError);
                 }
                 
                 const data = await response.json();
                 renderStats(data);
             } catch (error) {
-                errorElement.textContent = 'Fehler beim Laden der Statistiken: ' + error.message;
+                errorElement.textContent = i18n.statsLoadError + ': ' + error.message;
                 errorElement.style.display = 'block';
-                console.error('Fehler beim Laden der Statistiken:', error);
+                console.error(i18n.statsLoadError, error);
             } finally {
                 loadingElement.style.display = 'none';
             }
@@ -618,7 +662,7 @@
         // Statistiken rendern
         function renderStats(data) {
             if (!data.users || !data.types || !data.days) {
-                errorElement.textContent = 'Keine Statistikdaten verfügbar.';
+                errorElement.textContent = i18n.statsNoData;
                 errorElement.style.display = 'block';
                 return;
             }
@@ -628,7 +672,7 @@
             userStatsCard.className = 'stats-card';
             
             const userStatsTitle = document.createElement('h3');
-            userStatsTitle.textContent = 'Fleissigste Gipfeli-Bringer';
+            userStatsTitle.textContent = i18n.statsUsersTitle;
             userStatsCard.appendChild(userStatsTitle);
             
             const userStatsList = document.createElement('ul');
@@ -655,7 +699,7 @@
                 
                 const likesDiv = document.createElement('div');
                 likesDiv.className = 'stats-secondary';
-                likesDiv.textContent = `${user.likes || 0} Likes`;
+                likesDiv.textContent = `${user.likes || 0} ${i18n.likes}`;
                 
                 topRow.appendChild(nameDiv);
                 topRow.appendChild(valueDiv);
@@ -680,7 +724,7 @@
             if (data.users.length === 0) {
                 const emptyItem = document.createElement('li');
                 emptyItem.className = 'stats-item';
-                emptyItem.textContent = 'Keine Daten vorhanden';
+                emptyItem.textContent = i18n.noData;
                 userStatsList.appendChild(emptyItem);
             }
             
@@ -692,7 +736,7 @@
             typeStatsCard.className = 'stats-card';
             
             const typeStatsTitle = document.createElement('h3');
-            typeStatsTitle.textContent = 'Beliebteste Gipfeli-Sorten';
+            typeStatsTitle.textContent = i18n.statsTypesTitle;
             typeStatsCard.appendChild(typeStatsTitle);
             
             const typeStatsList = document.createElement('ul');
@@ -711,7 +755,7 @@
                 
                 const nameDiv = document.createElement('div');
                 nameDiv.className = 'stats-name';
-                nameDiv.textContent = type.type || 'Klassisch';
+                nameDiv.textContent = type.type || i18n.classic;
                 
                 const valueDiv = document.createElement('div');
                 valueDiv.className = 'stats-value';
@@ -739,7 +783,7 @@
             if (data.types.length === 0) {
                 const emptyItem = document.createElement('li');
                 emptyItem.className = 'stats-item';
-                emptyItem.textContent = 'Keine Daten vorhanden';
+                emptyItem.textContent = i18n.noData;
                 typeStatsList.appendChild(emptyItem);
             }
             
@@ -751,7 +795,7 @@
             dayStatsCard.className = 'stats-card full-width';
             
             const dayStatsTitle = document.createElement('h3');
-            dayStatsTitle.textContent = 'Beliebteste Wochentage';
+            dayStatsTitle.textContent = i18n.statsDaysTitle;
             dayStatsCard.appendChild(dayStatsTitle);
             
             const dayStatsList = document.createElement('ul');
@@ -798,7 +842,7 @@
             if (data.days.length === 0) {
                 const emptyItem = document.createElement('li');
                 emptyItem.className = 'stats-item';
-                emptyItem.textContent = 'Keine Daten vorhanden';
+                emptyItem.textContent = i18n.noData;
                 dayStatsList.appendChild(emptyItem);
             }
             
@@ -808,3 +852,4 @@
     </script>
 </body>
 </html>
+

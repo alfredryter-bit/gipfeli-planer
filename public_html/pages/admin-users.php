@@ -7,24 +7,28 @@ if (!isAdmin()) {
 }
 ?>
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?php echo htmlspecialchars(t('meta.lang')); ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Benutzerverwaltung - <?php echo htmlspecialchars($config['app_name']); ?></title>
+    <title><?php echo htmlspecialchars(t('users.title')); ?> - <?php echo htmlspecialchars($config['app_name']); ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css">
     <?php if (!empty($config['app_favicon'])): ?>
-    <link rel="icon" href="<?php echo htmlspecialchars($config['app_favicon']); ?>">
+    <link rel="icon" href="<?php echo htmlspecialchars(cacheBustUrl($config['app_favicon'])); ?>">
     <?php endif; ?>
     <style>
+        :root {
+            --layout-width: 1100px;
+        }
         body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
             background-color: #f5f5f5;
+            font-size: 14px;
         }
         .container {
-            max-width: 1000px;
+            max-width: var(--layout-width);
             margin: 0 auto;
             padding: 20px;
         }
@@ -33,16 +37,11 @@ if (!isAdmin()) {
             color: white;
             padding: 10px 0;
         }
-	header h2 {
-    	    color: white;
-    	    margin: 0;
-	    font-size: 1.5rem;
-	}
         .header-content {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            max-width: 1000px;
+            max-width: var(--layout-width);
             margin: 0 auto;
             padding: 0 20px;
         }
@@ -53,10 +52,24 @@ if (!isAdmin()) {
             display: flex;
             align-items: center;
         }
-        .user-info span {
-            margin-right: 15px;
+        .language-switch {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-right: 10px;
         }
-        nav {
+        .language-switch a {
+            color: #fff;
+            text-decoration: none;
+            font-weight: bold;
+            opacity: 0.85;
+            font-size: 13px;
+        }
+        .language-switch a.active {
+            opacity: 1;
+            text-decoration: underline;
+        }
+nav {
             background-color: #f8f8f8;
             border-bottom: 1px solid #e1e1e1;
         }
@@ -65,8 +78,11 @@ if (!isAdmin()) {
             list-style-type: none;
             padding: 0;
             margin: 0;
-            max-width: 1000px;
+            max-width: var(--layout-width);
             margin: 0 auto;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 4px;
         }
         nav ul li {
             padding: 10px 15px;
@@ -74,6 +90,7 @@ if (!isAdmin()) {
         nav ul li a {
             text-decoration: none;
             color: #333;
+            font-size: 15px;
         }
         nav ul li a:hover {
             color: <?php echo htmlspecialchars($config['app_primary_color']); ?>;
@@ -158,16 +175,46 @@ if (!isAdmin()) {
             margin: 50px 0;
             color: #6c757d;
         }
-        .btn-logout {
-            background-color: transparent;
-            border: 1px solid white;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 4px;
-            cursor: pointer;
+        .user-dropdown {
+            position: relative;
+            display: inline-block;
         }
-        .btn-logout:hover {
-            background-color: rgba(255, 255, 255, 0.1);
+        .user-dropdown-content {
+            display: none;
+            position: absolute;
+            right: 0;
+            background-color: #f9f9f9;
+            min-width: 180px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 12;
+            border-radius: 4px;
+        }
+        .user-dropdown-content a {
+            color: black;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+            font-size: 13px;
+        }
+        .user-dropdown-content a:hover {
+            background-color: #f1f1f1;
+            border-radius: 4px;
+        }
+        .user-dropdown:hover .user-dropdown-content {
+            display: block;
+        }
+        .user-dropdown-toggle {
+            background: transparent;
+            border: none;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            font-size: 16px;
+            padding: 0;
+        }
+        .user-dropdown-toggle .fa-user-circle {
+            margin-right: 5px;
         }
         .badge {
             display: inline-block;
@@ -274,6 +321,50 @@ if (!isAdmin()) {
         .checkbox-group input[type="checkbox"] {
             width: auto;
         }
+        .password-form .form-group {
+            margin: 0;
+        }
+        .password-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .password-actions button {
+            flex: 1;
+        }
+        .actions-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .action-icon-btn {
+            min-width: 34px;
+            height: 34px;
+            padding: 0 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .action-icon-btn.btn-warning {
+            background-color: #f59e0b;
+        }
+        .action-icon-btn.btn-warning:hover {
+            background-color: #d97706;
+        }
+        .action-icon-btn.btn-success {
+            background-color: #10b981;
+        }
+        .action-icon-btn.btn-success:hover {
+            background-color: #059669;
+        }
+        .app-title {
+            color: white;
+            margin: 0;
+            font-size: 1.35rem;
+            line-height: 1.2;
+        }
     </style>
 </head>
 <body>
@@ -281,38 +372,52 @@ if (!isAdmin()) {
         <div class="header-content">
     <div style="display: flex; align-items: center; gap: 10px;">
         <?php if (!empty($config['app_logo'])): ?>
-        <img src="<?php echo htmlspecialchars($config['app_logo']); ?>" alt="Logo" height="40">
+        <img src="<?php echo htmlspecialchars(cacheBustUrl($config['app_logo'])); ?>" alt="Logo" height="40">
         <?php endif; ?>
-        <h2 style="color: white; margin: 0;"><?php echo htmlspecialchars($config['app_name']); ?></h2>
+        <h2 class="app-title"><?php echo htmlspecialchars($config['app_name']); ?></h2>
     </div>
     <div class="user-info">
-                <span><?php echo htmlspecialchars($_SESSION['user_name']); ?></span>
-                <button id="logout-btn" class="btn-logout">Abmelden</button>
+                <div class="language-switch">
+                    <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'de'])); ?>" class="<?php echo getCurrentLanguage() === 'de' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.de')); ?></a>
+                    <span style="color: #fff; opacity: 0.7;">|</span>
+                    <a href="<?php echo htmlspecialchars(buildPageUrl(['lang' => 'en'])); ?>" class="<?php echo getCurrentLanguage() === 'en' ? 'active' : ''; ?>"><?php echo htmlspecialchars(t('lang.en')); ?></a>
+                </div>
+                <div class="user-dropdown">
+                    <button class="user-dropdown-toggle">
+                        <i class="fas fa-user-circle"></i>
+                        <?php echo htmlspecialchars($_SESSION['user_name']); ?>
+                        <i class="fas fa-caret-down"></i>
+                    </button>
+                    <div class="user-dropdown-content">
+                        <a href="#" id="change-password-btn"><i class="fas fa-key"></i> <?php echo htmlspecialchars(t('action.change_password')); ?></a>
+                        <a href="#" id="logout-btn"><i class="fas fa-sign-out-alt"></i> <?php echo htmlspecialchars(t('action.logout')); ?></a>
+                    </div>
+                </div>
             </div>
         </div>
     </header>
     
     <nav>
         <ul>
-            <li><a href="?page=main">Kalender</a></li>
-            <li><a href="?page=stats">Statistiken</a></li>
+            <li><a href="?page=main"><?php echo htmlspecialchars(t('nav.calendar')); ?></a></li>
+            <li><a href="?page=stats"><?php echo htmlspecialchars(t('nav.stats')); ?></a></li>
             <?php if (isAdmin()): ?>
-                <li><a href="?page=admin-users" class="active">Benutzerverwaltung</a></li>
-                <li><a href="?page=admin-audit">Audit-Log</a></li>
-                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> Einstellungen</a></li>
-                <li><a href="?page=admin-branding"><i class="fas fa-paint-brush"></i> Branding</a></li>
+                <li><a href="?page=admin-users" class="active"><?php echo htmlspecialchars(t('nav.users')); ?></a></li>
+                <li><a href="?page=admin-audit"><?php echo htmlspecialchars(t('nav.audit')); ?></a></li>
+                <li><a href="?page=admin-settings"><i class="fas fa-cogs"></i> <?php echo htmlspecialchars(t('nav.settings')); ?></a></li>
+                <li><a href="?page=admin-branding"><i class="fas fa-paint-brush"></i> <?php echo htmlspecialchars(t('nav.branding')); ?></a></li>
             <?php endif; ?>
         </ul>
     </nav>
     
     <div class="container">
         <div class="users-header">
-            <h1>Benutzerverwaltung</h1>
-            <button id="add-user-btn">Benutzer hinzufügen</button>
+            <h1><?php echo htmlspecialchars(t('users.title')); ?></h1>
+            <button id="add-user-btn"><?php echo htmlspecialchars(t('users.add')); ?></button>
         </div>
         
         <div id="loading" class="loading">
-            <i class="fas fa-spinner fa-spin"></i> Lade Benutzer...
+            <i class="fas fa-spinner fa-spin"></i> <?php echo htmlspecialchars(t('users.loading')); ?>
         </div>
         
         <div id="error-message" class="error" style="display: none;"></div>
@@ -322,13 +427,13 @@ if (!isAdmin()) {
             <table id="users-table">
                 <thead>
                     <tr>
-                        <th>Name</th>
-                        <th>E-Mail</th>
-                        <th>Rolle</th>
-                        <th>Status</th>
-                        <th>Letzte Aktivität</th>
-                        <th>Registriert am</th>
-                        <th>Aktionen</th>
+                        <th><?php echo htmlspecialchars(t('users.table.name')); ?></th>
+                        <th><?php echo htmlspecialchars(t('users.table.email')); ?></th>
+                        <th><?php echo htmlspecialchars(t('users.table.role')); ?></th>
+                        <th><?php echo htmlspecialchars(t('users.table.status')); ?></th>
+                        <th><?php echo htmlspecialchars(t('users.table.last_active')); ?></th>
+                        <th><?php echo htmlspecialchars(t('users.table.created')); ?></th>
+                        <th><?php echo htmlspecialchars(t('users.table.actions')); ?></th>
                     </tr>
                 </thead>
                 <tbody id="users-tbody">
@@ -338,7 +443,7 @@ if (!isAdmin()) {
         </div>
         
         <div id="empty-state" class="empty-state" style="display: none;">
-            <i class="fas fa-users"></i> Keine Benutzer gefunden.
+            <i class="fas fa-users"></i> <?php echo htmlspecialchars(t('users.empty')); ?>
         </div>
     </div>
     
@@ -346,59 +451,59 @@ if (!isAdmin()) {
     <div id="user-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title" id="modal-title">Benutzer hinzufügen</h3>
+                <h3 class="modal-title" id="modal-title"><?php echo htmlspecialchars(t('users.add')); ?></h3>
                 <button class="close-modal" id="close-modal">&times;</button>
             </div>
             <form id="user-form">
                 <input type="hidden" id="user-id">
                 
                 <div class="form-group">
-                    <label for="user-name">Name:</label>
+                    <label for="user-name"><?php echo htmlspecialchars(t('users.table.name')); ?>:</label>
                     <input type="text" id="user-name" required>
                 </div>
                 
                 <div class="form-group">
-                    <label for="user-email">E-Mail:</label>
+                    <label for="user-email"><?php echo htmlspecialchars(t('users.table.email')); ?>:</label>
                     <input type="email" id="user-email" required>
                 </div>
                 
                 <div class="form-group">
-                    <label for="user-role">Rolle:</label>
+                    <label for="user-role"><?php echo htmlspecialchars(t('users.table.role')); ?>:</label>
                     <select id="user-role" required>
-                        <option value="user">Benutzer</option>
-                        <option value="admin">Administrator</option>
+                        <option value="user"><?php echo htmlspecialchars(t('users.role.user')); ?></option>
+                        <option value="admin"><?php echo htmlspecialchars(t('users.role.admin')); ?></option>
                         <?php if (isSuperAdmin()): ?>
-                        <option value="super_admin">Super-Admin</option>
+                        <option value="super_admin"><?php echo htmlspecialchars(t('users.role.super_admin')); ?></option>
                         <?php endif; ?>
                     </select>
                 </div>
 
                 <div class="form-group">
-                    <label for="user-is-active">Status:</label>
+                    <label for="user-is-active"><?php echo htmlspecialchars(t('users.table.status')); ?>:</label>
                     <select id="user-is-active" required>
-                        <option value="1">Aktiv</option>
-                        <option value="0">Deaktiviert</option>
+                        <option value="1"><?php echo htmlspecialchars(t('users.status.active')); ?></option>
+                        <option value="0"><?php echo htmlspecialchars(t('users.status.inactive')); ?></option>
                     </select>
                 </div>
                 
                 <div class="form-group">
-                    <label for="user-password">Passwort:</label>
-                    <input type="password" id="user-password" placeholder="Optional - leer = Passwort per Link setzen" minlength="10" maxlength="128">
-                    <small>Mindestens 10 Zeichen und mindestens 3 Zeichentypen.</small>
+                    <label for="user-password"><?php echo htmlspecialchars(t('auth.password')); ?>:</label>
+                    <input type="password" id="user-password" placeholder="<?php echo htmlspecialchars(t('users.password_optional_create')); ?>" minlength="10" maxlength="128">
+                    <small><?php echo htmlspecialchars(t('auth.password_requirements')); ?></small>
                     <ul class="password-rules" id="password-rules">
-                        <li id="rule-length" class="invalid">Mindestens 10 Zeichen</li>
-                        <li id="rule-classes" class="invalid">Mindestens 3 Zeichentypen (Gross-/Kleinbuchstaben, Zahlen, Sonderzeichen)</li>
+                        <li id="rule-length" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_length')); ?></li>
+                        <li id="rule-classes" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_classes')); ?></li>
                     </ul>
                 </div>
 
                 <div class="form-group checkbox-group" id="notify-user-group">
                     <input type="checkbox" id="notify-user" checked>
-                    <label for="notify-user">Benutzer informieren (E-Mail)</label>
+                    <label for="notify-user"><?php echo htmlspecialchars(t('users.notify_user')); ?></label>
                 </div>
                 
                 <div>
-                    <button type="submit" id="save-user-btn">Speichern</button>
-                    <button type="button" class="btn-secondary" id="cancel-btn">Abbrechen</button>
+                    <button type="submit" id="save-user-btn"><?php echo htmlspecialchars(t('common.save')); ?></button>
+                    <button type="button" class="btn-secondary" id="cancel-btn"><?php echo htmlspecialchars(t('common.cancel')); ?></button>
                 </div>
             </form>
         </div>
@@ -408,15 +513,48 @@ if (!isAdmin()) {
     <div id="delete-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title">Benutzer löschen</h3>
+                <h3 class="modal-title"><?php echo htmlspecialchars(t('users.delete.title')); ?></h3>
                 <button class="close-modal" id="close-delete-modal">&times;</button>
             </div>
-            <p>Möchtest du den Benutzer <strong id="delete-user-name"></strong> wirklich löschen?</p>
-            <p><strong>Diese Aktion kann nicht rückgängig gemacht werden!</strong></p>
+            <p id="delete-user-question"></p>
+            <p><strong><?php echo htmlspecialchars(t('users.delete.warning')); ?></strong></p>
             <div>
-                <button id="confirm-delete-btn" class="btn-danger">Ja, löschen</button>
-                <button id="cancel-delete-btn" class="btn-secondary">Abbrechen</button>
+                <button id="confirm-delete-btn" class="btn-danger"><?php echo htmlspecialchars(t('users.delete.confirm')); ?></button>
+                <button id="cancel-delete-btn" class="btn-secondary"><?php echo htmlspecialchars(t('common.cancel')); ?></button>
             </div>
+        </div>
+    </div>
+
+    <div id="password-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title"><?php echo htmlspecialchars(t('password.change')); ?></h3>
+                <button class="close-modal" id="close-password-modal">&times;</button>
+            </div>
+            <div id="password-status" class="error" style="display: none;"></div>
+            <form id="password-form" class="password-form">
+                <div class="form-group">
+                    <label for="current-password"><?php echo htmlspecialchars(t('password.current')); ?>:</label>
+                    <input type="password" id="current-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="new-password"><?php echo htmlspecialchars(t('password.new')); ?>:</label>
+                    <input type="password" id="new-password" required minlength="10" maxlength="128">
+                    <small><?php echo htmlspecialchars(t('auth.password_requirements')); ?></small>
+                    <ul class="password-rules" id="change-password-rules">
+                        <li id="change-rule-length" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_length')); ?></li>
+                        <li id="change-rule-classes" class="invalid"><?php echo htmlspecialchars(t('auth.password_rule_classes')); ?></li>
+                    </ul>
+                </div>
+                <div class="form-group">
+                    <label for="confirm-password"><?php echo htmlspecialchars(t('password.confirm')); ?>:</label>
+                    <input type="password" id="confirm-password" required>
+                </div>
+                <div class="password-actions">
+                    <button type="submit"><?php echo htmlspecialchars(t('password.change')); ?></button>
+                    <button type="button" class="btn-secondary" id="cancel-password-btn"><?php echo htmlspecialchars(t('common.cancel')); ?></button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -425,6 +563,41 @@ if (!isAdmin()) {
         const API_URL = '?api=1&endpoint=';
         const CSRF_TOKEN = '<?php echo getCsrfToken(); ?>';
         const IS_SUPER_ADMIN = <?php echo isSuperAdmin() ? 'true' : 'false'; ?>;
+        const i18n = {
+            locale: <?php echo json_encode(t('locale.date')); ?>,
+            passwordRequirements: <?php echo json_encode(t('password.error.requirements')); ?>,
+            passwordMismatch: <?php echo json_encode(t('password.error.mismatch')); ?>,
+            passwordChangeFailed: <?php echo json_encode(t('password.error.change_failed')); ?>,
+            passwordChanged: <?php echo json_encode(t('password.changed_success')); ?>,
+            usersLoadError: <?php echo json_encode(t('users.error.load')); ?>,
+            roleSuperAdmin: <?php echo json_encode(t('users.role.super_admin')); ?>,
+            roleAdmin: <?php echo json_encode(t('users.role.admin')); ?>,
+            roleUser: <?php echo json_encode(t('users.role.user')); ?>,
+            onlySuperAdmin: <?php echo json_encode(t('users.only_super_admin')); ?>,
+            actionEdit: <?php echo json_encode(t('users.action.edit')); ?>,
+            actionDelete: <?php echo json_encode(t('users.action.delete')); ?>,
+            actionDisable: <?php echo json_encode(t('users.action.disable')); ?>,
+            actionEnable: <?php echo json_encode(t('users.action.enable')); ?>,
+            statusActive: <?php echo json_encode(t('users.status.active')); ?>,
+            statusInactive: <?php echo json_encode(t('users.status.inactive')); ?>,
+            addUser: <?php echo json_encode(t('users.add')); ?>,
+            editUser: <?php echo json_encode(t('users.edit.title')); ?>,
+            passwordOptionalCreate: <?php echo json_encode(t('users.password_optional_create')); ?>,
+            passwordOptionalEdit: <?php echo json_encode(t('users.password_optional_edit')); ?>,
+            errorSuperAdminOnly: <?php echo json_encode(t('users.error.super_admin_only')); ?>,
+            errorRequired: <?php echo json_encode(t('users.save_error.required')); ?>,
+            errorInvalidEmail: <?php echo json_encode(t('users.save_error.invalid_email')); ?>,
+            errorNotifyRequired: <?php echo json_encode(t('users.save_error.notify_required')); ?>,
+            errorPasswordPolicy: <?php echo json_encode(t('auth.error.password_requirements')); ?>,
+            successUpdated: <?php echo json_encode(t('users.success.updated')); ?>,
+            successCreated: <?php echo json_encode(t('users.success.created')); ?>,
+            successDeleted: <?php echo json_encode(t('users.success.deleted')); ?>,
+            successActivated: <?php echo json_encode(t('users.success.activated')); ?>,
+            successDeactivated: <?php echo json_encode(t('users.success.deactivated')); ?>,
+            statusChangeFailed: <?php echo json_encode(t('users.error.status')); ?>,
+            deleteQuestionPattern: <?php echo json_encode(t('users.delete.question')); ?>,
+            unknownError: <?php echo json_encode(t('common.unknown_error')); ?>
+        };
         
         // DOM-Elemente
         const loadingElement = document.getElementById('loading');
@@ -433,6 +606,15 @@ if (!isAdmin()) {
         const usersTbody = document.getElementById('users-tbody');
         const emptyState = document.getElementById('empty-state');
         const logoutBtn = document.getElementById('logout-btn');
+        const changePasswordBtn = document.getElementById('change-password-btn');
+        const passwordModal = document.getElementById('password-modal');
+        const closePasswordModalBtn = document.getElementById('close-password-modal');
+        const cancelPasswordBtn = document.getElementById('cancel-password-btn');
+        const passwordForm = document.getElementById('password-form');
+        const passwordStatus = document.getElementById('password-status');
+        const newPasswordInput = document.getElementById('new-password');
+        const changeRuleLength = document.getElementById('change-rule-length');
+        const changeRuleClasses = document.getElementById('change-rule-classes');
         
         // User-Modal-Elemente
         const userModal = document.getElementById('user-modal');
@@ -457,7 +639,7 @@ if (!isAdmin()) {
         const closeDeleteModalBtn = document.getElementById('close-delete-modal');
         const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
         const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
-        const deleteUserName = document.getElementById('delete-user-name');
+        const deleteUserQuestion = document.getElementById('delete-user-question');
 
         function checkPasswordPolicy(password) {
             const lengthOk = password.length >= 10 && password.length <= 128;
@@ -490,6 +672,16 @@ if (!isAdmin()) {
         
         // Event-Listener
         logoutBtn.addEventListener('click', logout);
+        changePasswordBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            passwordForm.reset();
+            passwordStatus.style.display = 'none';
+            setRuleState(changeRuleLength, false);
+            setRuleState(changeRuleClasses, false);
+            passwordModal.style.display = 'block';
+        });
+        closePasswordModalBtn.addEventListener('click', () => passwordModal.style.display = 'none');
+        cancelPasswordBtn.addEventListener('click', () => passwordModal.style.display = 'none');
         closeModalBtn.addEventListener('click', () => userModal.style.display = 'none');
         cancelBtn.addEventListener('click', () => userModal.style.display = 'none');
         closeDeleteModalBtn.addEventListener('click', () => deleteModal.style.display = 'none');
@@ -497,6 +689,27 @@ if (!isAdmin()) {
         addUserBtn.addEventListener('click', () => showAddUserModal());
         userForm.addEventListener('submit', saveUser);
         confirmDeleteBtn.addEventListener('click', deleteUser);
+        passwordForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const currentPassword = document.getElementById('current-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            const policy = checkPasswordPolicy(newPassword);
+            if (!policy.valid) {
+                showPasswordStatus(i18n.passwordRequirements, 'error');
+                return;
+            }
+            if (newPassword !== confirmPassword) {
+                showPasswordStatus(i18n.passwordMismatch, 'error');
+                return;
+            }
+            await changePassword(currentPassword, newPassword);
+        });
+        newPasswordInput.addEventListener('input', () => {
+            const policy = checkPasswordPolicy(newPasswordInput.value);
+            setRuleState(changeRuleLength, policy.lengthOk);
+            setRuleState(changeRuleClasses, policy.classesOk);
+        });
         
         // Klick außerhalb der Modals schließt sie
         window.addEventListener('click', (event) => {
@@ -505,6 +718,9 @@ if (!isAdmin()) {
             }
             if (event.target === deleteModal) {
                 deleteModal.style.display = 'none';
+            }
+            if (event.target === passwordModal) {
+                passwordModal.style.display = 'none';
             }
         });
         
@@ -537,7 +753,7 @@ if (!isAdmin()) {
             try {
                 const response = await fetch(API_URL + 'users');
                 if (!response.ok) {
-                    throw new Error('Fehler beim Laden der Benutzer');
+                    throw new Error(i18n.usersLoadError);
                 }
                 
                 const data = await response.json();
@@ -549,11 +765,47 @@ if (!isAdmin()) {
                 
                 renderUsers(data.users);
             } catch (error) {
-                errorMessage.textContent = 'Fehler beim Laden der Benutzer: ' + error.message;
+                errorMessage.textContent = i18n.usersLoadError + ': ' + error.message;
                 errorMessage.style.display = 'block';
-                console.error('Fehler beim Laden der Benutzer:', error);
+                console.error(i18n.usersLoadError, error);
             } finally {
                 loadingElement.style.display = 'none';
+            }
+        }
+
+        function showPasswordStatus(message, type) {
+            passwordStatus.textContent = message;
+            passwordStatus.className = type === 'success' ? 'success' : 'error';
+            passwordStatus.style.display = 'block';
+            if (type === 'success') {
+                setTimeout(() => {
+                    passwordStatus.style.display = 'none';
+                    passwordModal.style.display = 'none';
+                }, 2000);
+            }
+        }
+
+        async function changePassword(currentPassword, newPassword) {
+            try {
+                const response = await fetch(API_URL + 'change-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': CSRF_TOKEN
+                    },
+                    body: JSON.stringify({
+                        current_password: currentPassword,
+                        new_password: newPassword
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || i18n.passwordChangeFailed);
+                }
+                showPasswordStatus(i18n.passwordChanged, 'success');
+                passwordForm.reset();
+            } catch (error) {
+                showPasswordStatus(error.message, 'error');
             }
         }
 
@@ -565,7 +817,7 @@ if (!isAdmin()) {
             if (Number.isNaN(date.getTime())) {
                 return '-';
             }
-            return date.toLocaleString('de-CH');
+            return date.toLocaleString(i18n.locale);
         }
         
         // Benutzer rendern
@@ -588,13 +840,13 @@ if (!isAdmin()) {
                 const roleBadge = document.createElement('span');
                 if (user.role === 'super_admin') {
                     roleBadge.className = 'badge badge-super-admin';
-                    roleBadge.textContent = 'Super-Admin';
+                    roleBadge.textContent = i18n.roleSuperAdmin;
                 } else if (user.role === 'admin') {
                     roleBadge.className = 'badge badge-admin';
-                    roleBadge.textContent = 'Administrator';
+                    roleBadge.textContent = i18n.roleAdmin;
                 } else {
                     roleBadge.className = 'badge badge-user';
-                    roleBadge.textContent = 'Benutzer';
+                    roleBadge.textContent = i18n.roleUser;
                 }
                 roleCell.appendChild(roleBadge);
 
@@ -603,7 +855,7 @@ if (!isAdmin()) {
                 const statusBadge = document.createElement('span');
                 const isActive = parseInt(user.is_active, 10) === 1;
                 statusBadge.className = 'badge ' + (isActive ? 'badge-active' : 'badge-inactive');
-                statusBadge.textContent = isActive ? 'Aktiv' : 'Deaktiviert';
+                statusBadge.textContent = isActive ? i18n.statusActive : i18n.statusInactive;
                 statusCell.appendChild(statusBadge);
 
                 // Letzte Aktivität
@@ -613,13 +865,15 @@ if (!isAdmin()) {
                 // Registrierungsdatum
                 const dateCell = document.createElement('td');
                 const date = new Date(user.created_at);
-                dateCell.textContent = date.toLocaleDateString('de-CH');
+                dateCell.textContent = date.toLocaleDateString(i18n.locale);
                 
                 // Aktionen
                 const actionsCell = document.createElement('td');
+                const actionsGroup = document.createElement('div');
+                actionsGroup.className = 'actions-group';
 
                 if (!IS_SUPER_ADMIN && user.role === 'super_admin') {
-                    actionsCell.textContent = 'Nur Super-Admin';
+                    actionsCell.textContent = i18n.onlySuperAdmin;
                     row.appendChild(nameCell);
                     row.appendChild(emailCell);
                     row.appendChild(roleCell);
@@ -633,19 +887,38 @@ if (!isAdmin()) {
                 
                 // Bearbeiten-Button
                 const editBtn = document.createElement('button');
-                editBtn.innerHTML = '<i class="fas fa-edit"></i> Bearbeiten';
+                editBtn.className = 'action-icon-btn';
+                editBtn.title = i18n.actionEdit;
+                editBtn.setAttribute('aria-label', i18n.actionEdit);
+                editBtn.innerHTML = '<i class="fas fa-user-edit"></i>';
                 editBtn.addEventListener('click', () => showEditUserModal(user));
-                actionsCell.appendChild(editBtn);
+                actionsGroup.appendChild(editBtn);
+
+                // Aktivieren/Deaktivieren (nicht für eigenen Benutzer)
+                if (user.id != <?php echo $_SESSION['user_id']; ?>) {
+                    const toggleBtn = document.createElement('button');
+                    const activeNow = parseInt(user.is_active, 10) === 1;
+                    toggleBtn.className = 'action-icon-btn ' + (activeNow ? 'btn-warning' : 'btn-success');
+                    toggleBtn.title = activeNow ? i18n.actionDisable : i18n.actionEnable;
+                    toggleBtn.setAttribute('aria-label', toggleBtn.title);
+                    toggleBtn.innerHTML = activeNow
+                        ? '<i class="fas fa-user-slash"></i>'
+                        : '<i class="fas fa-user-check"></i>';
+                    toggleBtn.addEventListener('click', () => toggleUserStatus(user));
+                    actionsGroup.appendChild(toggleBtn);
+                }
                 
                 // Löschen-Button (nicht für den eigenen Benutzer)
                 if (user.id != <?php echo $_SESSION['user_id']; ?>) {
                     const deleteBtn = document.createElement('button');
-                    deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Löschen';
-                    deleteBtn.className = 'btn-danger';
-                    deleteBtn.style.marginLeft = '5px';
+                    deleteBtn.className = 'action-icon-btn btn-danger';
+                    deleteBtn.title = i18n.actionDelete;
+                    deleteBtn.setAttribute('aria-label', i18n.actionDelete);
+                    deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
                     deleteBtn.addEventListener('click', () => showDeleteUserModal(user));
-                    actionsCell.appendChild(deleteBtn);
+                    actionsGroup.appendChild(deleteBtn);
                 }
+                actionsCell.appendChild(actionsGroup);
                 
                 // Zellen zur Zeile hinzufügen
                 row.appendChild(nameCell);
@@ -662,7 +935,7 @@ if (!isAdmin()) {
         
         // Modal zum Hinzufügen eines Benutzers anzeigen
         function showAddUserModal() {
-            modalTitle.textContent = 'Benutzer hinzufügen';
+            modalTitle.textContent = i18n.addUser;
             userId.value = '';
             userName.value = '';
             userEmail.value = '';
@@ -670,7 +943,7 @@ if (!isAdmin()) {
             userIsActive.value = '1';
             userPassword.value = '';
             userPassword.required = false;
-            userPassword.placeholder = 'Optional - leer = Passwort per Link setzen';
+            userPassword.placeholder = i18n.passwordOptionalCreate;
             userEmail.readOnly = false;
             notifyUserCheckbox.checked = true;
             notifyUserGroup.style.display = 'flex';
@@ -679,14 +952,45 @@ if (!isAdmin()) {
             
             userModal.style.display = 'block';
         }
+
+        async function toggleUserStatus(user) {
+            const activeNow = parseInt(user.is_active, 10) === 1;
+            const targetState = activeNow ? 0 : 1;
+            loadingElement.style.display = 'block';
+            errorMessage.style.display = 'none';
+
+            try {
+                const response = await fetch(API_URL + 'users', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': CSRF_TOKEN
+                    },
+                    body: JSON.stringify({
+                        id: user.id,
+                        is_active: targetState
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || i18n.statusChangeFailed);
+                }
+                showSuccess(targetState === 1 ? i18n.successActivated : i18n.successDeactivated);
+                await loadUsers();
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                loadingElement.style.display = 'none';
+            }
+        }
         
         // Modal zum Bearbeiten eines Benutzers anzeigen
         function showEditUserModal(user) {
             if (!IS_SUPER_ADMIN && user.role === 'super_admin') {
-                showError('Super-Admin kann nur vom Super-Admin bearbeitet werden');
+                showError(i18n.errorSuperAdminOnly);
                 return;
             }
-            modalTitle.textContent = 'Benutzer bearbeiten';
+            modalTitle.textContent = i18n.editUser;
             userId.value = user.id;
             userName.value = user.name;
             userEmail.value = user.email;
@@ -694,7 +998,7 @@ if (!isAdmin()) {
             userIsActive.value = (parseInt(user.is_active, 10) === 1) ? '1' : '0';
             userPassword.value = '';
             userPassword.required = false;
-            userPassword.placeholder = 'Leer lassen, um nicht zu ändern';
+            userPassword.placeholder = i18n.passwordOptionalEdit;
             userEmail.readOnly = true;
             notifyUserGroup.style.display = 'none';
             setRuleState(ruleLength, false);
@@ -705,7 +1009,7 @@ if (!isAdmin()) {
         
         // Modal zum Löschen eines Benutzers anzeigen
         function showDeleteUserModal(user) {
-            deleteUserName.textContent = `${user.name} (${user.email})`;
+            deleteUserQuestion.textContent = i18n.deleteQuestionPattern.replace('%s', `${user.name} (${user.email})`);
             confirmDeleteBtn.dataset.userId = user.id;
             
             deleteModal.style.display = 'block';
@@ -725,28 +1029,28 @@ if (!isAdmin()) {
             
             // Validierung
             if (!name || !email) {
-                showError('Name und E-Mail sind erforderlich');
+                showError(i18n.errorRequired);
                 return;
             }
             if (!userEmail.checkValidity()) {
-                showError('Bitte gib eine gültige E-Mail-Adresse ein');
+                showError(i18n.errorInvalidEmail);
                 return;
             }
             if (!id && password) {
                 const policy = checkPasswordPolicy(password);
                 if (!policy.valid) {
-                    showError('Passwort erfüllt die Anforderungen noch nicht');
+                    showError(i18n.errorPasswordPolicy);
                     return;
                 }
             }
             if (!id && !password && !notifyUser) {
-                showError('Ohne Passwort muss "Benutzer informieren" aktiviert sein');
+                showError(i18n.errorNotifyRequired);
                 return;
             }
             if (id && password) {
                 const policy = checkPasswordPolicy(password);
                 if (!policy.valid) {
-                    showError('Passwort erfüllt die Anforderungen noch nicht');
+                    showError(i18n.errorPasswordPolicy);
                     return;
                 }
             }
@@ -776,10 +1080,10 @@ if (!isAdmin()) {
                     
                     if (!response.ok) {
                         const data = await response.json();
-                        throw new Error(data.error || 'Fehler beim Aktualisieren des Benutzers');
+                        throw new Error(data.error || i18n.usersLoadError);
                     }
                     
-                    showSuccess('Benutzer erfolgreich aktualisiert');
+                    showSuccess(i18n.successUpdated);
                 } else {
                     // Neuen Benutzer erstellen
                     userData.email = email;
@@ -797,10 +1101,10 @@ if (!isAdmin()) {
                     const data = await response.json();
                     
                     if (!response.ok) {
-                        throw new Error(data.error || 'Fehler beim Erstellen des Benutzers');
+                        throw new Error(data.error || i18n.unknownError);
                     }
                     
-                    showSuccess(data.message || 'Benutzer erfolgreich erstellt');
+                    showSuccess(data.message || i18n.successCreated);
                 }
                 
                 userModal.style.display = 'none';
@@ -831,11 +1135,11 @@ if (!isAdmin()) {
                 
                 if (!response.ok) {
                     const data = await response.json();
-                    throw new Error(data.error || 'Fehler beim Löschen des Benutzers');
+                    throw new Error(data.error || i18n.unknownError);
                 }
                 
                 deleteModal.style.display = 'none';
-                showSuccess('Benutzer erfolgreich gelöscht');
+                showSuccess(i18n.successDeleted);
                 await loadUsers();
             } catch (error) {
                 showError(error.message);
@@ -865,3 +1169,4 @@ if (!isAdmin()) {
     </script>
 </body>
 </html>
+
