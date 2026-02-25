@@ -106,22 +106,6 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
             box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
             overflow: hidden;
         }
-        .hero-head {
-            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-            color: #fff;
-            padding: 24px 20px;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-        .hero-head img {
-            max-height: 46px;
-            width: auto;
-        }
-        .hero-head h1 {
-            margin: 0;
-            font-size: 1.8rem;
-        }
         .hero-body {
             padding: 24px 20px 22px;
         }
@@ -140,6 +124,14 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
+        }
+        .tiny-hint {
+            margin-top: 14px;
+            text-align: center;
+            font-size: 10px;
+            color: #94a3b8;
+            letter-spacing: 0.02em;
+            user-select: none;
         }
         .btn {
             display: inline-block;
@@ -164,11 +156,6 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
         .btn-secondary:hover {
             background: #f8fafc;
         }
-        .hint {
-            margin-top: 14px;
-            font-size: 0.92rem;
-            color: #475569;
-        }
     </style>
 </head>
 <body>
@@ -178,7 +165,7 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
                 <?php if (!empty($appLogo)): ?>
                 <img src="<?php echo htmlspecialchars(cacheBustUrl($appLogo)); ?>" alt="Logo" height="40">
                 <?php endif; ?>
-                <h2 class="app-title"><?php echo htmlspecialchars($appName); ?></h2>
+                <h2 class="app-title" id="app-title-trigger"><?php echo htmlspecialchars($appName); ?></h2>
             </div>
             <div class="user-info">
                 <div class="language-switch">
@@ -199,12 +186,6 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
     </nav>
     <div class="wrap">
         <section class="hero">
-            <div class="hero-head">
-                <?php if (!empty($appLogo)): ?>
-                <img src="<?php echo htmlspecialchars(cacheBustUrl($appLogo)); ?>" alt="Logo">
-                <?php endif; ?>
-                <h1><?php echo htmlspecialchars($appName); ?></h1>
-            </div>
             <div class="hero-body">
                 <p class="lead"><?php echo htmlspecialchars(t('start.lead')); ?></p>
                 <ul class="features">
@@ -218,10 +199,127 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
                     <a class="btn btn-secondary" href="?page=register"><?php echo htmlspecialchars(t('nav.register')); ?></a>
                     <a class="btn btn-secondary" href="?page=reset-password"><?php echo htmlspecialchars(t('nav.reset')); ?></a>
                 </div>
-                <p class="hint"><?php echo htmlspecialchars(t('start.hint')); ?> <code>?page=start</code></p>
             </div>
         </section>
+        <div class="tiny-hint"><?php echo htmlspecialchars(t('start.konami_hint')); ?></div>
     </div>
+    <script>
+        const konamiCode = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+        let konamiIndex = 0;
+        const easterMessages = [
+            <?php echo json_encode(t('main.easter.1')); ?>,
+            <?php echo json_encode(t('main.easter.2')); ?>,
+            <?php echo json_encode(t('main.easter.3')); ?>,
+            <?php echo json_encode(t('main.easter.4')); ?>,
+            <?php echo json_encode(t('main.easter.5')); ?>
+        ];
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === konamiCode[konamiIndex]) {
+                konamiIndex++;
+                if (konamiIndex === konamiCode.length) {
+                    activateEasterEgg();
+                    konamiIndex = 0;
+                }
+            } else {
+                konamiIndex = 0;
+            }
+        });
+
+        function setupMobileEasterEgg() {
+            const trigger = document.getElementById('app-title-trigger');
+            if (!trigger) return;
+
+            let pressTimer = null;
+            let longPressActive = false;
+
+            trigger.addEventListener('touchstart', () => {
+                longPressActive = false;
+                pressTimer = setTimeout(() => {
+                    longPressActive = true;
+                    trigger.style.color = '#FFD700';
+                }, 1500);
+            }, { passive: true });
+
+            trigger.addEventListener('touchmove', () => {
+                clearTimeout(pressTimer);
+            }, { passive: true });
+
+            trigger.addEventListener('touchend', () => {
+                clearTimeout(pressTimer);
+                if (longPressActive) {
+                    activateEasterEgg();
+                    setTimeout(() => {
+                        trigger.style.color = '';
+                    }, 600);
+                }
+            }, { passive: true });
+        }
+
+        function activateEasterEgg() {
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            const gipfeliCount = isMobile ? 140 : 280;
+            const gipfeliEmojis = ['🥐', '🥐', '🥐', '🥐', '🥖', '🍞'];
+
+            for (let i = 0; i < gipfeliCount; i++) {
+                const gipfeli = document.createElement('div');
+                gipfeli.textContent = gipfeliEmojis[Math.floor(Math.random() * gipfeliEmojis.length)];
+                gipfeli.style.position = 'fixed';
+                gipfeli.style.left = Math.random() * 100 + 'vw';
+                gipfeli.style.top = (Math.random() * -280) + 'px';
+                gipfeli.style.fontSize = (Math.random() * (isMobile ? 18 : 26) + 14) + 'px';
+                gipfeli.style.transform = 'rotate(' + Math.random() * 360 + 'deg)';
+                gipfeli.style.zIndex = '9999';
+                gipfeli.style.opacity = Math.random() * 0.4 + 0.6;
+
+                const duration = Math.random() * 8 + 8;
+                gipfeli.style.transition = 'top ' + duration + 's linear, transform ' + duration + 's ease-in-out';
+
+                document.body.appendChild(gipfeli);
+
+                setTimeout(() => {
+                    gipfeli.style.top = '110vh';
+                    gipfeli.style.transform = 'rotate(' + (Math.random() * 720 - 360) + 'deg)';
+                }, Math.random() * 1800);
+
+                setTimeout(() => {
+                    if (document.body.contains(gipfeli)) {
+                        document.body.removeChild(gipfeli);
+                    }
+                }, duration * 1000 + 2200);
+            }
+
+            const message = document.createElement('div');
+            message.textContent = easterMessages[Math.floor(Math.random() * easterMessages.length)];
+            message.style.position = 'fixed';
+            message.style.top = '50%';
+            message.style.left = '50%';
+            message.style.transform = 'translate(-50%, -50%)';
+            message.style.background = 'rgba(255, 255, 255, 0.92)';
+            message.style.padding = isMobile ? '14px 18px' : '18px 24px';
+            message.style.borderRadius = '12px';
+            message.style.boxShadow = '0 0 20px rgba(0,0,0,0.35)';
+            message.style.zIndex = '10000';
+            message.style.fontWeight = 'bold';
+            message.style.fontSize = isMobile ? '18px' : '24px';
+            message.style.textAlign = 'center';
+            message.style.color = 'var(--primary-color)';
+            document.body.appendChild(message);
+
+            setTimeout(() => {
+                message.style.transition = 'transform 0.7s ease-in, opacity 0.7s ease-in';
+                message.style.transform = 'translate(-50%, -50%) scale(1.7)';
+                message.style.opacity = '0';
+                setTimeout(() => {
+                    if (document.body.contains(message)) {
+                        document.body.removeChild(message);
+                    }
+                }, 700);
+            }, 3200);
+        }
+
+        document.addEventListener('DOMContentLoaded', setupMobileEasterEgg);
+    </script>
 </body>
 </html>
 

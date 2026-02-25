@@ -62,6 +62,7 @@ return [
     'start.feature.admin' => 'Admin area for users, audit, and branding',
     'start.feature.security' => 'Password reset and secure user management',
     'start.hint' => 'Tip: direct link for later:',
+    'start.konami_hint' => 'Konami code: ↑ ↑ ↓ ↓ ← → ← → B A',
 
     'common.loading' => 'Loading...',
     'common.cancel' => 'Cancel',

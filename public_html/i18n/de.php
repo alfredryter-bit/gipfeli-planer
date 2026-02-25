@@ -62,6 +62,7 @@ return [
     'start.feature.admin' => 'Admin-Bereich für Benutzer, Audit und Branding',
     'start.feature.security' => 'Passwort-Reset und sichere Benutzerverwaltung',
     'start.hint' => 'Tipp: Direktlink für später:',
+    'start.konami_hint' => 'Konami-Code: ↑ ↑ ↓ ↓ ← → ← → B A',
 
     'common.loading' => 'Lädt...',
     'common.cancel' => 'Abbrechen',
