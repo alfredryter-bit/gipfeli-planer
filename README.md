@@ -49,8 +49,3 @@ Gipfeli Planer/
 - Setup/Provisioning: `public_html/setup.php`
 - UI-Seiten: `public_html/pages/`
 - Branding-Assets: `public_html/assets/`
-
-## Nächste sinnvolle Schritte
-
-- Optional: `software_data/.gitignore` mit `*` und `!.gitignore` anlegen, falls der Ordner im Repo erhalten bleiben soll.
-- Optional: kleine Deployment-Checkliste pro Umgebung ergänzen (Stage/Prod).
