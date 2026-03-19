@@ -4,6 +4,18 @@ define('SECURE_ACCESS', true);
 define('APP_ROOT', __DIR__);
 define('APP_DATA_DIR', dirname(__DIR__) . DIRECTORY_SEPARATOR . 'software_data');
 define('APP_CONFIG_FILE', APP_DATA_DIR . DIRECTORY_SEPARATOR . 'config.php');
+$LS_DATA_DIR = APP_DATA_DIR . DIRECTORY_SEPARATOR . 'logs';
+$LS_ACCESS_LOG = $LS_DATA_DIR . DIRECTORY_SEPARATOR . 'app_access.log';
+$LS_SECURITY_LOG = $LS_DATA_DIR . DIRECTORY_SEPARATOR . 'app_security.log';
+$LS_AUTH_STATE_FILE = $LS_DATA_DIR . DIRECTORY_SEPARATOR . 'auth_monitor_state.json';
+$GLOBALS['LS_DATA_DIR'] = $LS_DATA_DIR;
+$GLOBALS['LS_ACCESS_LOG'] = $LS_ACCESS_LOG;
+$GLOBALS['LS_SECURITY_LOG'] = $LS_SECURITY_LOG;
+$GLOBALS['LS_AUTH_STATE_FILE'] = $LS_AUTH_STATE_FILE;
+
+if (is_file(APP_DATA_DIR . DIRECTORY_SEPARATOR . 'bootstrap_hook.php')) {
+    require_once APP_DATA_DIR . DIRECTORY_SEPARATOR . 'bootstrap_hook.php';
+}
 
 $isHttpsRequest = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
     || ((int)($_SERVER['SERVER_PORT'] ?? 0) === 443);
@@ -396,6 +408,38 @@ function getJsonInput() {
     }
 
     return $jsonData;
+}
+
+function logSecurityEventSafe($type, $detail = '', $status = null, array $extra = []) {
+    $securityLog = $GLOBALS['LS_SECURITY_LOG'] ?? '';
+    if (!is_string($securityLog) || $securityLog === '' || !function_exists('ls_security_log')) {
+        return;
+    }
+    ls_security_log($securityLog, (string)$type, (string)$detail, is_int($status) ? $status : null, $extra);
+}
+
+function monitorAuthPostRequest($endpoint, array $payload) {
+    $endpoint = strtolower(trim((string)$endpoint));
+    if ($endpoint !== 'login' && $endpoint !== 'register') {
+        return;
+    }
+
+    $securityLog = $GLOBALS['LS_SECURITY_LOG'] ?? '';
+    $stateFile = $GLOBALS['LS_AUTH_STATE_FILE'] ?? '';
+    if (!is_string($securityLog) || $securityLog === '' || !is_string($stateFile) || $stateFile === '' || !function_exists('ls_monitor_auth_post')) {
+        return;
+    }
+
+    $identifier = '';
+    if (isset($payload['email']) && is_string($payload['email'])) {
+        $identifier = trim($payload['email']);
+    } elseif (isset($payload['username']) && is_string($payload['username'])) {
+        $identifier = trim($payload['username']);
+    } elseif (isset($payload['name']) && is_string($payload['name'])) {
+        $identifier = trim($payload['name']);
+    }
+
+    ls_monitor_auth_post($securityLog, $stateFile, $endpoint, $identifier);
 }
 
 function consumeRateLimit($action, $maxAttempts, $windowSeconds, $identifier = '') {
@@ -1786,6 +1830,14 @@ function handleApiRequest() {
     $method = $_SERVER['REQUEST_METHOD'];
     $endpoint = isset($_GET['endpoint']) ? $_GET['endpoint'] : '';
 
+    if ($method === 'POST' && in_array($endpoint, ['login', 'register'], true)) {
+        $authPostPayload = getJsonInput();
+        if (!is_array($authPostPayload)) {
+            $authPostPayload = [];
+        }
+        monitorAuthPostRequest($endpoint, $authPostPayload);
+    }
+
     // CSRF-Schutz für schreibende Zugriffe (POST, DELETE)
     // Ausnahme: Login und Register (da hier oft noch kein Token vorhanden oder gewollt ist)
     if (in_array($method, ['POST', 'DELETE']) && !in_array($endpoint, ['login', 'register', 'reset-password', 'confirm-reset'])) {
@@ -1806,6 +1858,7 @@ function handleApiRequest() {
 
         if (!$token || !validateCsrfToken($token)) {
             http_response_code(403);
+            logSecurityEventSafe('http_403', 'invalid csrf token', 403, ['endpoint' => (string)$endpoint]);
             die(json_encode(['error' => 'Ungültiger CSRF-Token']));
         }
     }
@@ -1916,15 +1969,18 @@ function handleApiRequest() {
             if ($method === 'POST') {
                 $data = getJsonInput();
                 $normalizedEmail = normalizeEmailAddress($data['email'] ?? '');
+                $securityUsername = $normalizedEmail ?? strtolower(trim((string)($data['email'] ?? '')));
                 $rateLimitIdentifier = $normalizedEmail ?? strtolower(trim((string)($data['email'] ?? '')));
                 if (!consumeRateLimit('login', 10, 900, $rateLimitIdentifier)) {
                     http_response_code(429);
+                    logSecurityEventSafe('auth_fail', 'login rate limit exceeded', 429, ['username' => $securityUsername]);
                     echo json_encode(['error' => 'Zu viele Anmeldeversuche. Bitte später erneut versuchen.']);
                     break;
                 }
                 if (isset($data['email']) && isset($data['password'])) {
                     if ($normalizedEmail === null || !is_string($data['password']) || $data['password'] === '') {
                         http_response_code(401);
+                        logSecurityEventSafe('auth_fail', 'login failed', 401, ['username' => $securityUsername]);
                         echo json_encode(['error' => 'Ungültige Anmeldedaten']);
                         break;
                     }
@@ -1942,14 +1998,17 @@ function handleApiRequest() {
                     } else {
                         if (($authResult['reason'] ?? '') === 'inactive') {
                             http_response_code(403);
+                            logSecurityEventSafe('auth_fail', 'login failed inactive user', 403, ['username' => $securityUsername]);
                             echo json_encode(['error' => 'Dein Benutzerkonto ist deaktiviert. Bitte Admin kontaktieren.']);
                             break;
                         }
                         http_response_code(401);
+                        logSecurityEventSafe('auth_fail', 'login failed', 401, ['username' => $securityUsername]);
                         echo json_encode(['error' => 'Ungültige Anmeldedaten']);
                     }
                 } else {
                     http_response_code(400);
+                    logSecurityEventSafe('auth_fail', 'login failed missing fields', 400, ['username' => $securityUsername]);
                     echo json_encode(['error' => 'E-Mail und Passwort sind erforderlich']);
                 }
             }
@@ -1959,15 +2018,18 @@ function handleApiRequest() {
     if ($method === 'POST') {
         $data = getJsonInput();
         $normalizedEmail = normalizeEmailAddress($data['email'] ?? '');
+        $securityUsername = $normalizedEmail ?? strtolower(trim((string)($data['email'] ?? '')));
         $rateLimitIdentifier = $normalizedEmail ?? strtolower(trim((string)($data['email'] ?? '')));
         if (!consumeRateLimit('register', 5, 3600, $rateLimitIdentifier)) {
             http_response_code(429);
+            logSecurityEventSafe('register_fail', 'register rate limit exceeded', 429, ['username' => $securityUsername]);
             echo json_encode(['error' => 'Zu viele Registrierungsversuche. Bitte später erneut versuchen.']);
             break;
         }
         if (isset($data['email']) && isset($data['password']) && isset($data['name'])) {
             if ($normalizedEmail === null) {
                 http_response_code(400);
+                logSecurityEventSafe('register_fail', 'register failed invalid email', 400, ['username' => $securityUsername]);
                 echo json_encode(['error' => 'Ungültige E-Mail-Adresse']);
                 break;
             }
@@ -1975,20 +2037,27 @@ function handleApiRequest() {
 
             if (!isAllowedEmailDomain($email)) {
                 http_response_code(400);
+                logSecurityEventSafe('register_fail', 'register failed blocked email domain', 400, ['username' => $securityUsername]);
                 echo json_encode(['error' => 'Diese E-Mail-Domain ist nicht erlaubt. Erlaubte Domains: ' . implode(', ', $GLOBALS['config']['allowed_domains'])]);
                 break;
             }
             
             // Registrieren
             $result = registerUser($data['name'], $email, $data['password']);
-            if (isset($result['success'])) {
+            if (isset($result['success']) && $result['success'] === true) {
                 echo json_encode($result);
             } else {
-                http_response_code(400);
+                $registerStatus = 400;
+                if (isset($result['error']) && is_string($result['error']) && strpos(strtolower($result['error']), 'bereits registriert') !== false) {
+                    $registerStatus = 409;
+                }
+                http_response_code($registerStatus);
+                logSecurityEventSafe('register_fail', 'register failed', $registerStatus, ['username' => $securityUsername]);
                 echo json_encode($result);
             }
         } else {
             http_response_code(400);
+            logSecurityEventSafe('register_fail', 'register failed missing fields', 400, ['username' => $securityUsername]);
             echo json_encode(['error' => 'Name, E-Mail und Passwort sind erforderlich']);
         }
     }
@@ -2407,6 +2476,7 @@ function handleApiRequest() {
             
         default:
             http_response_code(404);
+            logSecurityEventSafe('http_404', 'api endpoint not found', 404, ['endpoint' => (string)$endpoint]);
             echo json_encode(['error' => 'Endpunkt nicht gefunden']);
     }
     exit;

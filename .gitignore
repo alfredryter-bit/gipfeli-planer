@@ -46,6 +46,10 @@ composer.phar
 software_data/*
 !software_data/.gitkeep
 !software_data/.gitignore
+!software_data/security_logger.php
+!software_data/bootstrap_hook.php
+software_data/logs/
+software_data/logs/*
 
 # Generated branding assets
 public_html/assets/logo_*
