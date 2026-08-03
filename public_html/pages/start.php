@@ -157,6 +157,7 @@ $secondaryColor = $config['app_secondary_color'] ?? '#6c757d';
             background: #f8fafc;
         }
     </style>
+    <link rel="stylesheet" href="assets/css/site.css?v=<?php echo rawurlencode((string)(@filemtime(APP_ROOT . '/assets/css/site.css') ?: 1)); ?>">
 </head>
 <body>
     <header>

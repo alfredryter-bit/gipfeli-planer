@@ -366,6 +366,7 @@ nav {
             line-height: 1.2;
         }
     </style>
+    <link rel="stylesheet" href="assets/css/site.css?v=<?php echo rawurlencode((string)(@filemtime(APP_ROOT . '/assets/css/site.css') ?: 1)); ?>">
 </head>
 <body>
        <header>

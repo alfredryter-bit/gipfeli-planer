@@ -33,6 +33,56 @@ if ((is_file(APP_CONFIG_FILE) || is_file($legacyConfigFile)) && !$isLocalForceSe
 session_start();
 header('Content-Type: text/html; charset=utf-8');
 
+function setupSecretFilePath() {
+    return APP_DATA_DIR . DIRECTORY_SEPARATOR . '.setup-' . hash('sha256', session_id()) . '.json';
+}
+
+function setupReadSecrets() {
+    $file = setupSecretFilePath();
+    if (!is_file($file)) {
+        return [];
+    }
+    $decoded = json_decode((string)@file_get_contents($file), true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function setupWriteSecret($key, $value) {
+    if (!is_dir(APP_DATA_DIR) && !@mkdir(APP_DATA_DIR, 0700, true) && !is_dir(APP_DATA_DIR)) {
+        return false;
+    }
+    $secrets = setupReadSecrets();
+    $secrets[(string)$key] = (string)$value;
+    $json = json_encode($secrets, JSON_UNESCAPED_SLASHES);
+    if ($json === false || @file_put_contents(setupSecretFilePath(), $json, LOCK_EX) === false) {
+        return false;
+    }
+    @chmod(setupSecretFilePath(), 0600);
+    return true;
+}
+
+function setupReadSecret($key) {
+    $secrets = setupReadSecrets();
+    return array_key_exists((string)$key, $secrets) ? (string)$secrets[(string)$key] : null;
+}
+
+function setupClearSecrets() {
+    @unlink(setupSecretFilePath());
+}
+
+function setupCleanupStaleSecrets() {
+    if (!is_dir(APP_DATA_DIR)) {
+        return;
+    }
+    foreach ((array)glob(APP_DATA_DIR . DIRECTORY_SEPARATOR . '.setup-*.json') as $file) {
+        $mtime = @filemtime($file);
+        if ($mtime !== false && $mtime < (time() - 86400)) {
+            @unlink($file);
+        }
+    }
+}
+
+setupCleanupStaleSecrets();
+
 function getSetupCsrfToken() {
     if (empty($_SESSION['setup_csrf_token'])) {
         $_SESSION['setup_csrf_token'] = bin2hex(random_bytes(32));
@@ -61,6 +111,11 @@ function adjustBrightness($hex, $steps) {
 
     // Zurück nach Hex konvertieren
     return sprintf('#%02x%02x%02x', $r, $g, $b);
+}
+
+function safeSetupHexColor($value, $fallback) {
+    $value = trim((string)$value);
+    return preg_match('/^#[0-9a-fA-F]{6}$/', $value) ? $value : $fallback;
 }
 
 function isValidDatabaseName($dbName) {
@@ -143,11 +198,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo = new PDO($dsn, $config['db_user'], $config['db_pass']);
                     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
                     
-                    // In Session speichern
+                    if (!setupWriteSecret('db_pass', $config['db_pass'])) {
+                        $errors[] = "Die temporären Installationsdaten konnten nicht sicher gespeichert werden.";
+                        break;
+                    }
                     $_SESSION['db_config'] = [
                         'db_host' => $config['db_host'],
                         'db_user' => $config['db_user'],
-                        'db_pass' => $config['db_pass'],
                         'db_name' => $config['db_name']
                     ];
                     
@@ -204,13 +261,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach ($config['allowed_domains'] as &$domain) {
                     $domain = trim($domain);
                 }
+                $smtpConfigured = $config['mail_host'] !== '' || $config['mail_user'] !== ''
+                    || $config['mail_pass'] !== '' || $config['mail_from'] !== '';
+                if ($smtpConfigured && ($config['mail_host'] === '' || strlen($config['mail_host']) > 255
+                    || !preg_match('/^[A-Za-z0-9][A-Za-z0-9.-]{0,253}[A-Za-z0-9]$/', $config['mail_host'])
+                    || $config['mail_port'] < 1 || $config['mail_port'] > 65535
+                    || preg_match('/[\r\n\x00-\x1f\x7f]/', $config['mail_name'])
+                    || !filter_var($config['mail_from'], FILTER_VALIDATE_EMAIL))) {
+                    $errors[] = "Bitte prüfe SMTP-Host, Absenderadresse und Absendername.";
+                    break;
+                }
                 
-                // In Session speichern
+                if (!setupWriteSecret('mail_pass', $config['mail_pass'])) {
+                    $errors[] = "Die temporären Installationsdaten konnten nicht sicher gespeichert werden.";
+                    break;
+                }
                 $_SESSION['mail_config'] = [
                     'mail_host' => $config['mail_host'],
                     'mail_port' => $config['mail_port'],
                     'mail_user' => $config['mail_user'],
-                    'mail_pass' => $config['mail_pass'],
                     'mail_from' => $config['mail_from'],
                     'mail_name' => $config['mail_name'],
                     'allowed_domains' => $config['allowed_domains']
@@ -227,6 +296,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $config['app_primary_color'] = $_POST['app_primary_color'] ?? '#e74c3c';
                 $config['app_secondary_color'] = $_POST['app_secondary_color'] ?? '#6c757d';
                 $config['app_favicon'] = $_POST['app_favicon'] ?? '';
+                if ($config['app_name'] === '' || strlen($config['app_name']) > 255
+                    || preg_match('/[\r\n]/', $config['app_name'])
+                    || !preg_match('/^#[0-9a-fA-F]{6}$/', $config['app_primary_color'])
+                    || !preg_match('/^#[0-9a-fA-F]{6}$/', $config['app_secondary_color'])
+                    || ($config['app_logo'] !== '' && !preg_match('#^assets/[A-Za-z0-9._/-]+$#', $config['app_logo']))
+                    || ($config['app_favicon'] !== '' && !preg_match('#^assets/[A-Za-z0-9._/-]+$#', $config['app_favicon']))) {
+                    $errors[] = "Ungültige Branding-Einstellung.";
+                    break;
+                }
                 
                 // In Session speichern
                 $_SESSION['branding_config'] = [
@@ -272,16 +350,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $errors[] = "Bitte gib eine gültige E-Mail-Adresse für den Admin-Benutzer an.";
                 }
                 
-                if (empty($adminPassword) || strlen($adminPassword) < 8) {
-                    $errors[] = "Das Passwort muss mindestens 8 Zeichen lang sein.";
+                $passwordClasses = 0;
+                $passwordClasses += preg_match('/[a-z]/', $adminPassword) ? 1 : 0;
+                $passwordClasses += preg_match('/[A-Z]/', $adminPassword) ? 1 : 0;
+                $passwordClasses += preg_match('/[0-9]/', $adminPassword) ? 1 : 0;
+                $passwordClasses += preg_match('/[^a-zA-Z0-9]/', $adminPassword) ? 1 : 0;
+                if (strlen($adminPassword) < 10 || strlen($adminPassword) > 128 || $passwordClasses < 3) {
+                    $errors[] = "Das Passwort muss mindestens 10 Zeichen lang sein und 3 Zeichentypen enthalten.";
                 }
                 
                 if (empty($errors)) {
-                    // In Session speichern
+                    if (!setupWriteSecret('admin_password', $adminPassword)) {
+                        $errors[] = "Die temporären Installationsdaten konnten nicht sicher gespeichert werden.";
+                        break;
+                    }
                     $_SESSION['admin_user'] = [
                         'name' => $adminName,
-                        'email' => $adminEmail,
-                        'password' => $adminPassword
+                        'email' => $adminEmail
                     ];
                     
                     // Zum nächsten Schritt
@@ -300,8 +385,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $featureConfig = $_SESSION['feature_config'] ?? null;
                 $adminUser = $_SESSION['admin_user'] ?? null;
                 $keepExistingData = $_SESSION['keep_existing_data'] ?? true;
+                $dbPassword = setupReadSecret('db_pass');
+                $mailPassword = setupReadSecret('mail_pass');
+                $adminPassword = setupReadSecret('admin_password');
                 
-                if ($dbConfig && $mailConfig && $brandingConfig && $featureConfig && $adminUser) {
+                if ($dbConfig && $mailConfig && $brandingConfig && $featureConfig && $adminUser
+                    && $dbPassword !== null && $mailPassword !== null && $adminPassword !== null) {
                     if (!isValidDatabaseName($dbConfig['db_name'])) {
                         $errors[] = "Ungültiger Datenbankname.";
                         break;
@@ -309,7 +398,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     try {
                         // Datenbankverbindung herstellen
                         $dsn = "mysql:host={$dbConfig['db_host']}";
-                        $pdo = new PDO($dsn, $dbConfig['db_user'], $dbConfig['db_pass']);
+                        $pdo = new PDO($dsn, $dbConfig['db_user'], $dbPassword);
                         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
                         
                         // Prüfen, ob die Datenbank existiert
@@ -394,7 +483,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         
                         // Admin-Benutzer erstellen, wenn Neuinstallation oder der Admin-Benutzer nicht existiert
                         if (!$keepExistingData || !userExists($pdo, $adminUser['email'])) {
-                            $hashedPassword = password_hash($adminUser['password'], PASSWORD_DEFAULT);
+                            $hashedPassword = password_hash($adminPassword, PASSWORD_DEFAULT);
                             $stmt = $pdo->prepare("INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, 'admin')");
                             $stmt->execute([$adminUser['name'], $adminUser['email'], $hashedPassword]);
                         }
@@ -415,7 +504,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $configContent .= "    // Datenbankeinstellungen\n";
                         $configContent .= "    'db_host' => '" . addslashes($dbConfig['db_host']) . "',\n";
                         $configContent .= "    'db_user' => '" . addslashes($dbConfig['db_user']) . "',\n";
-                        $configContent .= "    'db_pass' => '" . addslashes($dbConfig['db_pass']) . "',\n";
+                        $configContent .= "    'db_pass' => '" . addslashes($dbPassword) . "',\n";
                         $configContent .= "    'db_name' => '" . addslashes($dbConfig['db_name']) . "',\n\n";
                         
                         // E-Mail-Einstellungen
@@ -424,7 +513,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $configContent .= "    'mail_host' => '" . addslashes($mailConfig['mail_host']) . "',\n";
                         $configContent .= "    'mail_port' => " . intval($mailConfig['mail_port']) . ",\n";
                         $configContent .= "    'mail_user' => '" . addslashes($mailConfig['mail_user']) . "',\n";
-                        $configContent .= "    'mail_pass' => '" . addslashes($mailConfig['mail_pass']) . "',\n";
+                        $configContent .= "    'mail_pass' => '" . addslashes($mailPassword) . "',\n";
                         $configContent .= "    'mail_from' => '" . addslashes($mailConfig['mail_from']) . "',\n";
                         $configContent .= "    'mail_name' => '" . addslashes($mailConfig['mail_name']) . "',\n\n";
                         
@@ -453,6 +542,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (file_put_contents(APP_CONFIG_FILE, $configContent, LOCK_EX)) {
                             // Installation erfolgreich
                             $_SESSION['installation_complete'] = true;
+                            setupClearSecrets();
                             
                             // Setze restriktive Berechtigungen für die Konfigurationsdatei
                             @chmod(APP_CONFIG_FILE, 0640);
@@ -503,6 +593,9 @@ function generateColorOptions() {
     }
     return $options;
 }
+
+$setupPrimaryColor = safeSetupHexColor($config['app_primary_color'] ?? '', '#e74c3c');
+$setupSecondaryColor = safeSetupHexColor($config['app_secondary_color'] ?? '', '#6c757d');
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -512,9 +605,9 @@ function generateColorOptions() {
     <title>Gipfeli-Koordinator Installation</title>
     <style>
         :root {
-            --primary-color: <?php echo $config['app_primary_color']; ?>;
-            --primary-dark: <?php echo adjustBrightness($config['app_primary_color'], -20); ?>;
-            --secondary-color: <?php echo $config['app_secondary_color']; ?>;
+            --primary-color: <?php echo htmlspecialchars($setupPrimaryColor, ENT_QUOTES, 'UTF-8'); ?>;
+            --primary-dark: <?php echo htmlspecialchars(adjustBrightness($setupPrimaryColor, -20), ENT_QUOTES, 'UTF-8'); ?>;
+            --secondary-color: <?php echo htmlspecialchars($setupSecondaryColor, ENT_QUOTES, 'UTF-8'); ?>;
         }
         body {
             font-family: Arial, sans-serif;
@@ -745,7 +838,7 @@ function generateColorOptions() {
                         
                         <div class="form-group">
                             <label for="db_pass">Datenbank-Passwort:</label>
-                            <input type="password" id="db_pass" name="db_pass" value="<?php echo htmlspecialchars($config['db_pass']); ?>">
+                            <input type="password" id="db_pass" name="db_pass" value="">
                         </div>
                         
                         <div class="form-group">
@@ -813,7 +906,7 @@ function generateColorOptions() {
                         
                         <div class="form-group">
                             <label for="mail_pass">SMTP-Passwort:</label>
-                            <input type="password" id="mail_pass" name="mail_pass" value="<?php echo htmlspecialchars($config['mail_pass']); ?>">
+                            <input type="password" id="mail_pass" name="mail_pass" value="">
                         </div>
                         
                         <div class="form-group">
@@ -946,8 +1039,8 @@ function generateColorOptions() {
                         
                         <div class="form-group">
                             <label for="admin_password">Passwort:</label>
-                            <input type="password" id="admin_password" name="admin_password" required minlength="8">
-                            <small>Mindestens 8 Zeichen</small>
+                            <input type="password" id="admin_password" name="admin_password" required minlength="10" maxlength="128">
+                            <small>Mindestens 10 Zeichen und 3 Zeichentypen</small>
                         </div>
                         
                         <button type="submit">Weiter zu Schritt 6</button>

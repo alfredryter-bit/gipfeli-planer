@@ -25,7 +25,7 @@ php_value error_log ../software_data/logs/php_errors.log
 AddDefaultCharset UTF-8
 
 # Verbiete Zugriff auf sensible Dateien/Artefakte
-<FilesMatch "^(config\.php|ExampleConfig\.php|setup(\..*)?|.*\.(zip|sql|bak|old|log|ini|env|dist))$">
+<FilesMatch "^(config\.php|ExampleConfig\.php|.*\.(zip|sql|bak|old|log|ini|env|dist))$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>

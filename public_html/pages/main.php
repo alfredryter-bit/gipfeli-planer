@@ -202,6 +202,27 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         .month-nav:active {
             transform: scale(0.95);
         }
+
+        .month-today {
+            min-height: 32px;
+            padding: 5px 10px;
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            border-radius: 8px;
+            font-size: 0.8rem;
+        }
+
+        .month-export {
+            margin-left: auto;
+            min-height: 36px;
+            padding: 7px 11px;
+            background: rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            font-size: 0.82rem;
+        }
+
+        .month-export:hover {
+            background: rgba(255, 255, 255, 0.24);
+        }
         .weekdays {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
@@ -602,6 +623,7 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
             }
         }
     </style>
+    <link rel="stylesheet" href="assets/css/site.css?v=<?php echo rawurlencode((string)(@filemtime(APP_ROOT . '/assets/css/site.css') ?: 1)); ?>">
 </head>
 <body>
     <header>
@@ -656,6 +678,13 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 <button class="month-nav" id="prev-month">&lt;</button>
                 <span id="current-month"></span>
                 <button class="month-nav" id="next-month">&gt;</button>
+                <button type="button" class="month-nav month-today" id="today-btn">
+                    <?php echo htmlspecialchars(t('main.action.today')); ?>
+                </button>
+                <button type="button" class="month-export" id="export-calendar-btn">
+                    <i class="fas fa-download"></i>
+                    <?php echo htmlspecialchars(t('main.action.export_calendar')); ?>
+                </button>
             </div>
             <div class="weekdays">
                 <div><?php echo htmlspecialchars(t('main.weekday.mo')); ?></div>
@@ -851,6 +880,8 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
         const notifyCheckbox = document.getElementById('notify-others');
         const notificationMessageContainer = document.getElementById('notification-message-container');
         const addToDayBtn = document.getElementById('add-to-day-btn');
+        const todayBtn = document.getElementById('today-btn');
+        const exportCalendarBtn = document.getElementById('export-calendar-btn');
         const newPasswordInput = document.getElementById('new-password');
         const ruleLength = document.getElementById('rule-length');
         const ruleClasses = document.getElementById('rule-classes');
@@ -897,6 +928,18 @@ $showMultipleWarning = $config['show_multiple_warning'] ?? true;
                 entriesModal.style.display = 'none';
                 openAddGipfeliModal(date);
             }
+        });
+
+        exportCalendarBtn.addEventListener('click', function() {
+            const month = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+            window.location.href = `?api=calendar-export&month=${encodeURIComponent(month)}`;
+        });
+
+        todayBtn.addEventListener('click', function() {
+            const today = new Date();
+            currentMonth = today.getMonth();
+            currentYear = today.getFullYear();
+            loadEntries();
         });
         
         // Event-Listener für Passwort ändern

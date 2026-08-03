@@ -366,6 +366,7 @@ nav {
             }
         }
     </style>
+    <link rel="stylesheet" href="assets/css/site.css?v=<?php echo rawurlencode((string)(@filemtime(APP_ROOT . '/assets/css/site.css') ?: 1)); ?>">
 </head>
 <body>
     <header>
@@ -473,6 +474,15 @@ nav {
             statsUsersTitle: <?php echo json_encode(t('stats.users.title')); ?>,
             statsTypesTitle: <?php echo json_encode(t('stats.types.title')); ?>,
             statsDaysTitle: <?php echo json_encode(t('stats.days.title')); ?>,
+            weekdayNames: <?php echo json_encode([
+                t('stats.weekday.sunday'),
+                t('stats.weekday.monday'),
+                t('stats.weekday.tuesday'),
+                t('stats.weekday.wednesday'),
+                t('stats.weekday.thursday'),
+                t('stats.weekday.friday'),
+                t('stats.weekday.saturday')
+            ]); ?>,
             likes: <?php echo json_encode(t('stats.likes')); ?>,
             noData: <?php echo json_encode(t('common.no_data')); ?>,
             classic: <?php echo json_encode(t('stats.classic')); ?>
@@ -814,7 +824,7 @@ nav {
                 
                 const nameDiv = document.createElement('div');
                 nameDiv.className = 'stats-name';
-                nameDiv.textContent = day.name;
+                nameDiv.textContent = i18n.weekdayNames[Number(day.day) - 1] || day.name;
                 
                 const valueDiv = document.createElement('div');
                 valueDiv.className = 'stats-value';

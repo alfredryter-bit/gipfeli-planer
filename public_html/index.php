@@ -18,7 +18,10 @@ if (is_file(APP_DATA_DIR . DIRECTORY_SEPARATOR . 'bootstrap_hook.php')) {
 }
 
 $isHttpsRequest = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-    || ((int)($_SERVER['SERVER_PORT'] ?? 0) === 443);
+    || ((int)($_SERVER['SERVER_PORT'] ?? 0) === 443)
+    || (function_exists('ls_request_from_trusted_proxy')
+        && ls_request_from_trusted_proxy()
+        && strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https');
 
 ini_set('session.use_strict_mode', '1');
 session_set_cookie_params([
@@ -53,6 +56,11 @@ function adjustBrightness($hex, $steps) {
     return sprintf('#%02x%02x%02x', $r, $g, $b);
 }
 
+function safeHexColor($value, $fallback) {
+    $value = trim((string)$value);
+    return preg_match('/^#[0-9a-fA-F]{6}$/', $value) ? $value : $fallback;
+}
+
 // Konfiguration für die Datenbank und E-Mail
 $config = [
     'db_host' => 'localhost',
@@ -74,6 +82,8 @@ $config = [
     'app_secondary_color' => '#6c757d',              // Sekundärfarbe (für Sekundär-Buttons)
     'app_favicon' => 'assets/favicon.ico',           // Favicon
     'app_base_url' => '',
+    // Nur Proxy-Netze eintragen, die Header zur echten Client-IP zuverlässig setzen.
+    'trusted_proxy_cidrs' => [],
     
     // Feature-Einstellungen
     'allow_multiple_entries' => true,                // Erlaube mehrere Einträge pro Tag
@@ -296,6 +306,17 @@ if (function_exists('connectDB')) {
     loadBrandingFromDatabase();
 }
 
+$config['app_primary_color'] = safeHexColor($config['app_primary_color'] ?? '', '#e74c3c');
+$config['app_secondary_color'] = safeHexColor($config['app_secondary_color'] ?? '', '#6c757d');
+if (preg_match('/[\r\n\x00-\x1f\x7f]/', (string)($config['app_name'] ?? ''))) {
+    $config['app_name'] = 'Gipfeli-Koordinator';
+}
+foreach (['app_logo', 'app_favicon'] as $assetKey) {
+    if (!empty($config[$assetKey]) && !preg_match('#^assets/[A-Za-z0-9._/-]+$#', (string)$config[$assetKey])) {
+        $config[$assetKey] = '';
+    }
+}
+
 // Prüfen, ob der Benutzer angemeldet ist
 function isLoggedIn() {
     return isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
@@ -418,6 +439,10 @@ function logSecurityEventSafe($type, $detail = '', $status = null, array $extra 
     ls_security_log($securityLog, (string)$type, (string)$detail, is_int($status) ? $status : null, $extra);
 }
 
+function getClientIpSafe() {
+    return function_exists('ls_client_ip') ? ls_client_ip() : (string)($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
+}
+
 function monitorAuthPostRequest($endpoint, array $payload) {
     $endpoint = strtolower(trim((string)$endpoint));
     if ($endpoint !== 'login' && $endpoint !== 'register') {
@@ -443,15 +468,24 @@ function monitorAuthPostRequest($endpoint, array $payload) {
 }
 
 function consumeRateLimit($action, $maxAttempts, $windowSeconds, $identifier = '') {
-    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $ip = getClientIpSafe();
     $key = hash('sha256', $ip . '|' . strtolower((string)$identifier));
 
     $dir = APP_DATA_DIR . DIRECTORY_SEPARATOR . 'rate_limits';
     if (!is_dir($dir) && !@mkdir($dir, 0750, true) && !is_dir($dir)) {
-        return true;
+        logSecurityEventSafe('rate_limit_storage_failure', 'rate limit storage unavailable', 503, ['action' => (string)$action]);
+        return false;
     }
 
     $file = $dir . DIRECTORY_SEPARATOR . preg_replace('/[^a-z0-9_-]/i', '_', $action) . '.json';
+    $lock = @fopen($file . '.lock', 'c');
+    if ($lock === false || !@flock($lock, LOCK_EX)) {
+        if (is_resource($lock)) {
+            @fclose($lock);
+        }
+        logSecurityEventSafe('rate_limit_storage_failure', 'rate limit state could not be locked', 503, ['action' => (string)$action]);
+        return false;
+    }
     $now = time();
     $cutoff = $now - (int)$windowSeconds;
     $data = [];
@@ -482,11 +516,23 @@ function consumeRateLimit($action, $maxAttempts, $windowSeconds, $identifier = '
     }
 
     if (count($data[$key]) >= (int)$maxAttempts) {
+        @flock($lock, LOCK_UN);
+        @fclose($lock);
         return false;
     }
 
     $data[$key][] = $now;
-    @file_put_contents($file, json_encode($data), LOCK_EX);
+    $encoded = json_encode($data);
+    if ($encoded === false || @file_put_contents($file, $encoded, LOCK_EX) === false) {
+        @flock($lock, LOCK_UN);
+        @fclose($lock);
+        logSecurityEventSafe('rate_limit_storage_failure', 'rate limit state could not be written', 503, ['action' => (string)$action]);
+        return false;
+    }
+    @chmod($file, 0600);
+    @chmod($file . '.lock', 0600);
+    @flock($lock, LOCK_UN);
+    @fclose($lock);
     return true;
 }
 
@@ -517,6 +563,7 @@ function authenticateUser($email, $password) {
             $_SESSION['user_email'] = $user['email'];
             $_SESSION['user_name'] = $user['name'];
             $_SESSION['user_role'] = $user['role'];
+            $_SESSION['session_version'] = (int)($user['session_version'] ?? 1);
 
             $touchStmt = $pdo->prepare('UPDATE users SET last_active_at = NOW() WHERE id = ?');
             $touchStmt->execute([(int)$user['id']]);
@@ -574,7 +621,7 @@ function enforceCurrentUserIsActive($isApiRequest = false) {
             return true;
         }
 
-        $stmt = $pdo->prepare('SELECT id, name, email, role, is_active FROM users WHERE id = ?');
+        $stmt = $pdo->prepare('SELECT id, name, email, role, is_active, session_version FROM users WHERE id = ?');
         $stmt->execute([(int)$_SESSION['user_id']]);
         $user = $stmt->fetch();
 
@@ -584,6 +631,18 @@ function enforceCurrentUserIsActive($isApiRequest = false) {
                 header('Content-Type: application/json');
                 http_response_code(401);
                 echo json_encode(['error' => 'Sitzung beendet, weil der Benutzer deaktiviert wurde']);
+                exit;
+            }
+            header('Location: ?page=login');
+            exit;
+        }
+
+        if ((int)($user['session_version'] ?? 1) !== (int)($_SESSION['session_version'] ?? 1)) {
+            destroyCurrentSession();
+            if ($isApiRequest) {
+                header('Content-Type: application/json');
+                http_response_code(401);
+                echo json_encode(['error' => 'Sitzung beendet. Bitte melde dich erneut an.']);
                 exit;
             }
             header('Location: ?page=login');
@@ -629,13 +688,19 @@ function logSmtpEvent($status, array $context = []) {
     $entry = [
         'timestamp' => date('c'),
         'status' => $status,
-        'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+        'ip' => getClientIpSafe(),
         'user_id' => $_SESSION['user_id'] ?? null,
         'context' => $context
     ];
 
+    $file = $dir . DIRECTORY_SEPARATOR . 'smtp.log';
+    if (function_exists('ls_write_jsonl')) {
+        ls_write_jsonl($file, $entry);
+        return;
+    }
+
     @file_put_contents(
-        $dir . DIRECTORY_SEPARATOR . 'smtp.log',
+        $file,
         json_encode($entry, JSON_UNESCAPED_UNICODE) . PHP_EOL,
         FILE_APPEND | LOCK_EX
     );
@@ -715,6 +780,13 @@ function sendEmail($to, $subject, $body, $isHTML = true) {
         logSmtpEvent('invalid_recipient', ['to' => (string)$to, 'subject' => (string)$subject]);
         return false;
     }
+    $mailFrom = normalizeEmailAddress($config['mail_from'] ?? '');
+    if (preg_match('/[\r\n\x00-\x1f\x7f]/', (string)$subject)
+        || preg_match('/[\r\n\x00-\x1f\x7f]/', (string)($config['mail_name'] ?? ''))
+        || $mailFrom === null) {
+        logSmtpEvent('invalid_header', ['to' => $normalizedTo]);
+        return false;
+    }
     
     // Prüfen, ob die Mail-Konfiguration vollständig ist
     if (empty($config['mail_host']) || empty($config['mail_user']) || empty($config['mail_pass']) || empty($config['mail_from'])) {
@@ -746,7 +818,7 @@ function sendEmail($to, $subject, $body, $isHTML = true) {
             $mail->CharSet = 'UTF-8';
             
             // Recipients
-            $mail->setFrom($config['mail_from'], $mailFromName);
+            $mail->setFrom($mailFrom, $mailFromName);
             $mail->addAddress($normalizedTo);
             
             // Content
@@ -772,7 +844,7 @@ function sendEmail($to, $subject, $body, $isHTML = true) {
         }
     } else {
         // Fallback zu mail() Funktion
-        $headers = 'From: ' . $mailFromName . ' <' . $config['mail_from'] . ">\r\n";
+        $headers = 'From: ' . $mailFromName . ' <' . $mailFrom . ">\r\n";
         
         if ($isHTML) {
             $headers .= "MIME-Version: 1.0\r\n";
@@ -791,31 +863,42 @@ function sendEmail($to, $subject, $body, $isHTML = true) {
 function notifyUsers($date, $name, $type, $message = '') {
     try {
         global $config;
-        $appName = $config['app_name'] ?? 'Gipfeli-Koordinator';
-        
+        if (!isLoggedIn() || !consumeRateLimit('notify', 5, 3600, (string)($_SESSION['user_id'] ?? ''))) {
+            return false;
+        }
+        $dateObject = DateTime::createFromFormat('Y-m-d', (string)$date);
+        $type = trim((string)$type);
+        $message = trim((string)$message);
+        if (!$dateObject || $dateObject->format('Y-m-d') !== $date || strlen($type) > 255 || strlen($message) > 2000) {
+            return false;
+        }
+
+        $appName = htmlspecialchars((string)($config['app_name'] ?? 'Gipfeli-Koordinator'), ENT_QUOTES, 'UTF-8');
+        $actorName = htmlspecialchars((string)($_SESSION['user_name'] ?? 'Ein Benutzer'), ENT_QUOTES, 'UTF-8');
+        $safeType = htmlspecialchars($type, ENT_QUOTES, 'UTF-8');
+        $safeMessage = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
         $pdo = connectDB();
-        $stmt = $pdo->prepare('SELECT email, name FROM users WHERE id != ?');
+        $stmt = $pdo->prepare('SELECT email, name FROM users WHERE id != ? AND is_active = 1');
         $stmt->execute([(int)$_SESSION['user_id']]);
         $users = $stmt->fetchAll();
-        
-        $formattedDate = date('d.m.Y', strtotime($date));
+
+        $formattedDate = $dateObject->format('d.m.Y');
         $subject = "Gipfeli-Ankündigung für $formattedDate";
-        
+        $allSent = true;
         foreach ($users as $user) {
-            $body = "Hallo {$user['name']},<br><br>";
-            $body .= "{$_SESSION['user_name']} bringt am $formattedDate Gipfeli mit!<br>";
-            $body .= "Sorte: $type<br><br>";
-            
-            if (!empty($message)) {
-                $body .= "Nachricht: $message<br><br>";
+            $safeRecipientName = htmlspecialchars((string)$user['name'], ENT_QUOTES, 'UTF-8');
+            $body = "Hallo $safeRecipientName,<br><br>";
+            $body .= "$actorName bringt am $formattedDate Gipfeli mit!<br>";
+            $body .= "Sorte: $safeType<br><br>";
+            if ($message !== '') {
+                $body .= "Nachricht: $safeMessage<br><br>";
             }
-            
             $body .= "Liebe Grüsse,<br>Dein $appName";
-            
-            sendEmail($user['email'], $subject, $body);
+            if (!sendEmail($user['email'], $subject, $body)) {
+                $allSent = false;
+            }
         }
-        
-        return true;
+        return $allSent;
     } catch (PDOException $e) {
         return false;
     }
@@ -833,7 +916,7 @@ function addAuditLog($action, $description = '', $data = null) {
             $action, 
             $description, 
             $data ? json_encode($data) : null,
-            $_SERVER['REMOTE_ADDR']
+            getClientIpSafe()
         ]);
         return true;
     } catch (PDOException $e) {
@@ -923,12 +1006,15 @@ function getGipfeliStats() {
         
         // Anzahl der Gipfeli-Einträge pro Benutzer
         $stmt = $pdo->query('
-            SELECT g.name, COUNT(*) as count, 
-                   (SELECT COUNT(*) FROM gipfeli_likes WHERE entry_id IN (
-                       SELECT id FROM gipfeli_entries WHERE name = g.name
-                   )) as likes
+            SELECT g.name, g.user_id, COUNT(*) as count,
+                   (SELECT COUNT(*)
+                    FROM gipfeli_likes l
+                    JOIN gipfeli_entries liked ON liked.id = l.entry_id
+                    WHERE (g.user_id IS NOT NULL AND liked.user_id = g.user_id)
+                       OR (g.user_id IS NULL AND liked.user_id IS NULL AND liked.name = g.name)
+                   ) as likes
             FROM gipfeli_entries g
-            GROUP BY g.name
+            GROUP BY g.user_id, g.name
             ORDER BY count DESC
         ');
         $userStats = $stmt->fetchAll();
@@ -968,6 +1054,58 @@ function getGipfeliStats() {
     }
 }
 
+function icsEscape($value) {
+    return str_replace(
+        ["\\", ";", ",", "\r\n", "\n", "\r"],
+        ["\\\\", "\\;", "\\,", "\\n", "\\n", "\\n"],
+        (string)$value
+    );
+}
+
+function getCalendarIcs($month) {
+    $monthDate = DateTimeImmutable::createFromFormat('!Y-m', (string)$month);
+    if (!$monthDate || $monthDate->format('Y-m') !== $month) {
+        return null;
+    }
+
+    $from = $monthDate->format('Y-m-01');
+    $until = $monthDate->modify('+1 month')->format('Y-m-01');
+    $pdo = connectDB();
+    if (!$pdo instanceof PDO) {
+        throw new PDOException('Datenbankverbindung nicht verfügbar');
+    }
+    $stmt = $pdo->prepare('SELECT id, date, name, type FROM gipfeli_entries WHERE date >= ? AND date < ? ORDER BY date, timestamp, id');
+    $stmt->execute([$from, $until]);
+    $entries = $stmt->fetchAll();
+
+    $lines = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Gipfeli Planer//Calendar Export//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+    ];
+    foreach ($entries as $entry) {
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', (string)$entry['date']);
+        if (!$date) {
+            continue;
+        }
+        $type = trim((string)($entry['type'] ?? ''));
+        $summary = $type === '' ? 'Gipfeli' : 'Gipfeli: ' . $type;
+        $description = 'Mitgebracht von: ' . (string)($entry['name'] ?? '');
+        $lines[] = 'BEGIN:VEVENT';
+        $lines[] = 'UID:' . icsEscape((string)$entry['id']) . '@gipfeli-planer';
+        $lines[] = 'DTSTAMP:' . gmdate('Ymd\THis\Z');
+        $lines[] = 'DTSTART;VALUE=DATE:' . $date->format('Ymd');
+        $lines[] = 'DTEND;VALUE=DATE:' . $date->modify('+1 day')->format('Ymd');
+        $lines[] = 'SUMMARY:' . icsEscape($summary);
+        $lines[] = 'DESCRIPTION:' . icsEscape($description);
+        $lines[] = 'END:VEVENT';
+    }
+    $lines[] = 'END:VCALENDAR';
+    return implode("\r\n", $lines) . "\r\n";
+}
+
 // Alle Benutzer abrufen (nur für Admins)
 function getAllUsers() {
     try {
@@ -1000,21 +1138,25 @@ function notifyUsersEntryDeleted($date, array $deletedEntries, $actorName) {
         foreach ($deletedEntries as $entry) {
             $typeValue = trim((string)($entry['type'] ?? ''));
             if ($typeValue !== '') {
-                $typeParts[] = $typeValue;
+                $typeParts[] = htmlspecialchars($typeValue, ENT_QUOTES, 'UTF-8');
             }
         }
         $typeParts = array_values(array_unique($typeParts));
         $typeLine = empty($typeParts) ? '' : ('Betroffene Sorten: ' . implode(', ', $typeParts) . '<br>');
 
+        $allSent = true;
         foreach ($users as $user) {
-            $body = "Hallo {$user['name']},<br><br>";
+            $safeRecipientName = htmlspecialchars((string)$user['name'], ENT_QUOTES, 'UTF-8');
+            $body = "Hallo $safeRecipientName,<br><br>";
             $body .= htmlspecialchars((string)$actorName, ENT_QUOTES, 'UTF-8') . " hat einen Gipfeli-Eintrag für den $formattedDate gelöscht.<br>";
             $body .= $typeLine;
-            $body .= "<br>Liebe Grüsse,<br>Dein $appName";
-            sendEmail($user['email'], $subject, $body);
+            $body .= "<br>Liebe Grüsse,<br>Dein " . htmlspecialchars((string)$appName, ENT_QUOTES, 'UTF-8');
+            if (!sendEmail($user['email'], $subject, $body)) {
+                $allSent = false;
+            }
         }
 
-        return true;
+        return $allSent;
     } catch (PDOException $e) {
         return false;
     }
@@ -1033,7 +1175,7 @@ function updateUser($data) {
             return ['error' => 'Ungültige Benutzer-ID'];
         }
 
-        $stmt = $pdo->prepare('SELECT id, name, email, role, is_active FROM users WHERE id = ?');
+        $stmt = $pdo->prepare('SELECT id, name, email, role, is_active, session_version FROM users WHERE id = ?');
         $stmt->execute([$userId]);
         $targetUser = $stmt->fetch();
         if (!$targetUser) {
@@ -1046,6 +1188,7 @@ function updateUser($data) {
         
         $updates = [];
         $params = [];
+        $invalidateSessions = false;
         
         // Name aktualisieren
         if (isset($data['name'])) {
@@ -1090,6 +1233,9 @@ function updateUser($data) {
             }
             $updates[] = 'role = ?';
             $params[] = $role;
+            if ($role !== $targetUser['role']) {
+                $invalidateSessions = true;
+            }
         }
 
         // Aktiv-Status aktualisieren
@@ -1114,6 +1260,9 @@ function updateUser($data) {
             }
             $updates[] = 'is_active = ?';
             $params[] = $isActive;
+            if ($isActive !== (int)$targetUser['is_active']) {
+                $invalidateSessions = true;
+            }
         }
         
         // Passwort aktualisieren
@@ -1124,10 +1273,15 @@ function updateUser($data) {
             }
             $updates[] = 'password = ?';
             $params[] = password_hash($data['password'], PASSWORD_DEFAULT);
+            $invalidateSessions = true;
         }
         
         if (empty($updates)) {
             return ['error' => 'Keine Änderungen angegeben'];
+        }
+
+        if ($invalidateSessions) {
+            $updates[] = 'session_version = session_version + 1';
         }
         
         $params[] = $userId;
@@ -1135,6 +1289,10 @@ function updateUser($data) {
         
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
+
+        if ($invalidateSessions && $userId === (int)($_SESSION['user_id'] ?? 0)) {
+            $_SESSION['session_version'] = (int)($targetUser['session_version'] ?? 1) + 1;
+        }
         
         // Benutzerdetails für Audit-Log abrufen
         $stmt = $pdo->prepare('SELECT name, email FROM users WHERE id = ?');
@@ -1242,7 +1400,7 @@ function registerUser($name, $email, $password) {
         // Audit-Log (ohne Benutzer-ID, da noch nicht angemeldet)
         $userId = $pdo->lastInsertId();
         $stmt = $pdo->prepare('INSERT INTO audit_log (user_id, action, description, ip_address) VALUES (?, ?, ?, ?)');
-        $stmt->execute([$userId, 'register', "Benutzer hat sich registriert", $_SERVER['REMOTE_ADDR']]);
+        $stmt->execute([$userId, 'register', "Benutzer hat sich registriert", getClientIpSafe()]);
         
         // Diese Zeile hinzufügen, um die Willkommens-E-Mail zu senden
         sendWelcomeEmail($name, $email);
@@ -1413,8 +1571,9 @@ function changeUserPassword($currentPassword, $newPassword) {
         
         // Neues Passwort setzen
         $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare('UPDATE users SET password = ? WHERE id = ?');
+        $stmt = $pdo->prepare('UPDATE users SET password = ?, session_version = session_version + 1 WHERE id = ?');
         $stmt->execute([$hashedPassword, $_SESSION['user_id']]);
+        $_SESSION['session_version'] = (int)($_SESSION['session_version'] ?? 1) + 1;
         
         // Audit-Log
         addAuditLog('password_change', "Benutzer hat sein Passwort geändert");
@@ -1468,7 +1627,7 @@ function resetPassword($email) {
         
         // Audit-Log
         $stmt = $pdo->prepare('INSERT INTO audit_log (user_id, action, description, ip_address) VALUES (?, ?, ?, ?)');
-        $stmt->execute([$user['id'], 'password_reset_request', "Passwort-Reset angefordert", $_SERVER['REMOTE_ADDR']]);
+        $stmt->execute([$user['id'], 'password_reset_request', "Passwort-Reset angefordert", getClientIpSafe()]);
         
         return [
             'success' => true, 
@@ -1485,6 +1644,8 @@ function resetPassword($email) {
 
 // Passwort zurücksetzen bestätigen
 function confirmResetPassword($token, $password) {
+    $pdo = null;
+    $transactionStarted = false;
     try {
         global $config;
         $appName = $config['app_name'] ?? 'Gipfeli-Koordinator';
@@ -1500,6 +1661,9 @@ function confirmResetPassword($token, $password) {
             return ['error' => $passwordPolicyError];
         }
 
+        $pdo->beginTransaction();
+        $transactionStarted = true;
+
         $tokenHash = hash('sha256', $token);
         
         // Token überprüfen (kompatibel für alte un-gehashte Tokens)
@@ -1508,27 +1672,34 @@ function confirmResetPassword($token, $password) {
             FROM password_resets pr
             JOIN users u ON pr.user_id = u.id
             WHERE pr.token IN (?, ?)
+            FOR UPDATE
         ');
         $stmt->execute([$tokenHash, $token]);
         $reset = $stmt->fetch();
         
         if (!$reset) {
+            $pdo->rollBack();
+            $transactionStarted = false;
             return ['error' => 'Ungültiger oder abgelaufener Token. Bitte fordere einen neuen Link an.'];
         }
         
         // Prüfen, ob der Token abgelaufen ist
         if (strtotime($reset['expires_at']) < time()) {
+            $pdo->rollBack();
+            $transactionStarted = false;
             return ['error' => 'Der Link ist abgelaufen. Bitte fordere einen neuen Link an.'];
         }
         
         // Passwort aktualisieren
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare('UPDATE users SET password = ? WHERE id = ?');
+        $stmt = $pdo->prepare('UPDATE users SET password = ?, session_version = session_version + 1 WHERE id = ?');
         $stmt->execute([$hashedPassword, $reset['user_id']]);
         
         // Token entfernen
         $stmt = $pdo->prepare('DELETE FROM password_resets WHERE token IN (?, ?)');
         $stmt->execute([$tokenHash, $token]);
+        $pdo->commit();
+        $transactionStarted = false;
         
         // Bestätigungs-E-Mail senden
         $subject = "Passwort-Änderung bestätigt - " . $appName;
@@ -1541,13 +1712,19 @@ function confirmResetPassword($token, $password) {
         
         // Audit-Log
         $stmt = $pdo->prepare('INSERT INTO audit_log (user_id, action, description, ip_address) VALUES (?, ?, ?, ?)');
-        $stmt->execute([$reset['user_id'], 'password_reset_complete', "Passwort wurde zurückgesetzt", $_SERVER['REMOTE_ADDR']]);
+        $stmt->execute([$reset['user_id'], 'password_reset_complete', "Passwort wurde zurückgesetzt", getClientIpSafe()]);
         
         return ['success' => true, 'message' => 'Dein Passwort wurde erfolgreich zurückgesetzt. Du kannst dich jetzt mit deinem neuen Passwort anmelden.'];
     } catch (PDOException $e) {
+        if ($transactionStarted && $pdo instanceof PDO && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         error_log('Passwort-Reset-Bestätigungs-Fehler: ' . $e->getMessage());
         return ['error' => 'Interner Datenbankfehler'];
     } catch (Exception $e) {
+        if ($transactionStarted && $pdo instanceof PDO && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         error_log('Passwort-Reset-Bestätigungs-Fehler: ' . $e->getMessage());
         return ['error' => 'Ein Fehler ist aufgetreten. Bitte versuche es später erneut.'];
     }
@@ -1656,23 +1833,33 @@ function saveEntry($data) {
     $date = $data['date'];
     $name = $_SESSION['user_name'];
     $userId = (int)$_SESSION['user_id'];
-    $gipfeliType = $data['gipfeliType'] ?? '';
+    $gipfeliType = trim((string)($data['gipfeliType'] ?? ''));
     $sendNotification = isset($data['notify']) ? (bool)$data['notify'] : false;
-    $notificationMessage = $data['message'] ?? '';
+    $notificationMessage = trim((string)($data['message'] ?? ''));
 
     $dateObject = DateTime::createFromFormat('Y-m-d', $date);
     if (!$dateObject || $dateObject->format('Y-m-d') !== $date) {
         http_response_code(400);
         return ['error' => 'Ungültiges Datum'];
     }
+    if (strlen($gipfeliType) > 255 || strlen($notificationMessage) > 2000) {
+        http_response_code(400);
+        return ['error' => 'Eintrag oder Nachricht ist zu lang'];
+    }
     
     try {
+        global $config;
         $pdo = connectDB();
         
         // Überprüfen, ob der Benutzer bereits einen Eintrag für diesen Tag hat
         $stmt = $pdo->prepare('SELECT COUNT(*) as count FROM gipfeli_entries WHERE date = ? AND user_id = ?');
         $stmt->execute([$date, $userId]);
         $result = $stmt->fetch();
+
+        if (empty($config['allow_multiple_entries']) && (int)($result['count'] ?? 0) > 0) {
+            http_response_code(409);
+            return ['error' => 'Du hast für diesen Tag bereits einen Eintrag'];
+        }
         
         debugLog("Saving entry: Date=$date, Name=$name, Existing entries={$result['count']}");
         
@@ -1964,7 +2151,42 @@ function handleApiRequest() {
                 echo json_encode(getGipfeliStats());
             }
             break;
-            
+
+        case 'calendar-export':
+            if (!isLoggedIn()) {
+                http_response_code(401);
+                echo json_encode(['error' => 'Nicht angemeldet']);
+                break;
+            }
+            if ($method !== 'GET') {
+                http_response_code(405);
+                echo json_encode(['error' => 'Methode nicht erlaubt']);
+                break;
+            }
+
+            $month = (string)($_GET['month'] ?? date('Y-m'));
+            if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Ungültiger Monat']);
+                break;
+            }
+            try {
+                $ics = getCalendarIcs($month);
+                if ($ics === null) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Ungültiger Monat']);
+                    break;
+                }
+                addAuditLog('export_calendar', "Kalender exportiert: $month");
+                header('Content-Type: text/calendar; charset=UTF-8', true);
+                header('Content-Disposition: attachment; filename="gipfeli-' . $month . '.ics"');
+                echo $ics;
+            } catch (PDOException $e) {
+                http_response_code(500);
+                echo json_encode(['error' => 'Interner Datenbankfehler']);
+            }
+            break;
+
         case 'login':
             if ($method === 'POST') {
                 $data = getJsonInput();
@@ -2246,37 +2468,56 @@ function handleApiRequest() {
             } elseif ($method === 'POST') {
                 // Branding-Einstellungen speichern
                 $data = getJsonInput();
+                $allowedBranding = [
+                    'app_name', 'app_primary_color', 'app_secondary_color',
+                    'app_logo', 'app_favicon', 'allow_multiple_entries',
+                    'show_multiple_warning'
+                ];
+                $unknownBranding = array_diff(array_keys($data), $allowedBranding);
+                if (!empty($unknownBranding)) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Ungültige Branding-Einstellung']);
+                    break;
+                }
+                $branding = [];
+                foreach ($data as $name => $value) {
+                    if (in_array($name, ['app_primary_color', 'app_secondary_color'], true)) {
+                        $color = trim((string)$value);
+                        if (!preg_match('/^#[0-9a-fA-F]{6}$/', $color)) {
+                            http_response_code(400);
+                            echo json_encode(['error' => 'Ungültige Farbe']);
+                            break 2;
+                        }
+                        $branding[$name] = $color;
+                    } elseif ($name === 'app_name') {
+                        $appName = trim((string)$value);
+                        if ($appName === '' || strlen($appName) > 255 || preg_match('/[\r\n]/', $appName)) {
+                            http_response_code(400);
+                            echo json_encode(['error' => 'Ungültiger App-Name']);
+                            break 2;
+                        }
+                        $branding[$name] = $appName;
+                    } elseif (in_array($name, ['app_logo', 'app_favicon'], true)) {
+                        $asset = trim((string)$value);
+                        if ($asset !== '' && !preg_match('#^assets/[A-Za-z0-9._/-]+$#', $asset)) {
+                            http_response_code(400);
+                            echo json_encode(['error' => 'Ungültiger Asset-Pfad']);
+                            break 2;
+                        }
+                        $branding[$name] = $asset;
+                    } else {
+                        if (!in_array((string)$value, ['0', '1', 'true', 'false'], true) && !is_bool($value) && !is_int($value)) {
+                            http_response_code(400);
+                            echo json_encode(['error' => 'Ungültiger Funktionswert']);
+                            break 2;
+                        }
+                        $normalizedBool = is_string($value) ? strtolower(trim($value)) : $value;
+                        $branding[$name] = in_array($normalizedBool, [true, 1, '1', 'true'], true) ? '1' : '0';
+                    }
+                }
                 try {
                     $pdo = connectDB();
-                    
-                    // Tabelle erstellen, falls sie nicht existiert
-                    $pdo->exec("CREATE TABLE IF NOT EXISTS `app_config` (
-                        `id` INT AUTO_INCREMENT PRIMARY KEY,
-                        `category` VARCHAR(50) NOT NULL,
-                        `name` VARCHAR(50) NOT NULL,
-                        `value` TEXT,
-                        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                        UNIQUE KEY (`category`, `name`)
-                    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-                    
-                    // Vorhandene Einstellungen abrufen
-                    $stmt = $pdo->query("SELECT name, value FROM app_config WHERE category = 'branding'");
-                    $existingSettings = [];
-                    while ($row = $stmt->fetch()) {
-                        $existingSettings[$row['name']] = $row['value'];
-                    }
-                    
-                    // Einstellungen speichern/aktualisieren
-                    foreach ($data as $name => $value) {
-                        if (isset($existingSettings[$name])) {
-                            $stmt = $pdo->prepare("UPDATE app_config SET value = ? WHERE category = 'branding' AND name = ?");
-                            $stmt->execute([$value, $name]);
-                        } else {
-                            $stmt = $pdo->prepare("INSERT INTO app_config (category, name, value) VALUES ('branding', ?, ?)");
-                            $stmt->execute([$name, $value]);
-                        }
-                    }
+                    saveAppConfigCategory($pdo, 'branding', $branding);
                     
                     // Audit-Log
                     addAuditLog('update_branding', "Branding-Einstellungen aktualisiert");
@@ -2317,7 +2558,8 @@ function handleApiRequest() {
                 $mailName = trim((string)($data['mail_name'] ?? ''));
                 $mailPassInput = trim((string)($data['mail_pass'] ?? ''));
 
-                if ($mailHost === '' || strlen($mailHost) > 255) {
+                if ($mailHost === '' || strlen($mailHost) > 255 || preg_match('/[\r\n\x00-\x1f\x7f]/', $mailHost)
+                    || !preg_match('/^[A-Za-z0-9][A-Za-z0-9.-]{0,253}[A-Za-z0-9]$/', $mailHost)) {
                     http_response_code(400);
                     echo json_encode(['error' => 'Ungültiger SMTP-Host']);
                     break;
@@ -2332,7 +2574,7 @@ function handleApiRequest() {
                     echo json_encode(['error' => 'Ungültige Absender-E-Mail']);
                     break;
                 }
-                if ($mailName === '' || strlen($mailName) > 255) {
+                if ($mailName === '' || strlen($mailName) > 255 || preg_match('/[\r\n\x00-\x1f\x7f]/', $mailName)) {
                     http_response_code(400);
                     echo json_encode(['error' => 'Ungültiger Absendername']);
                     break;
@@ -2427,7 +2669,7 @@ function handleApiRequest() {
             $limit = isset($_GET['limit']) ? max(1, min(500, (int)$_GET['limit'])) : 200;
             echo json_encode([
                 'entries' => getSmtpLogEntries($limit),
-                'log_file' => APP_DATA_DIR . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'smtp.log'
+                'log_file' => 'software_data/logs/smtp.log'
             ]);
             break;
 
@@ -2450,6 +2692,16 @@ function handleApiRequest() {
                 echo json_encode(['error' => 'Ungültige Empfänger-E-Mail']);
                 break;
             }
+            if (!hash_equals((string)($_SESSION['user_email'] ?? ''), $recipient)) {
+                http_response_code(403);
+                echo json_encode(['error' => 'SMTP-Test darf nur an die eigene E-Mail-Adresse gesendet werden']);
+                break;
+            }
+            if (!consumeRateLimit('smtp_test', 3, 3600, (string)($_SESSION['user_id'] ?? ''))) {
+                http_response_code(429);
+                echo json_encode(['error' => 'Zu viele SMTP-Tests. Bitte später erneut versuchen.']);
+                break;
+            }
 
             $appName = $config['app_name'] ?? 'Gipfeli-Koordinator';
             $subject = 'SMTP-Test - ' . $appName;
@@ -2462,14 +2714,14 @@ function handleApiRequest() {
                 echo json_encode([
                     'success' => true,
                     'message' => 'SMTP-Testmail wurde gesendet',
-                    'log_file' => APP_DATA_DIR . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'smtp.log'
+                    'log_file' => 'software_data/logs/smtp.log'
                 ]);
             } else {
                 http_response_code(500);
                 addAuditLog('smtp_test_failed', "SMTP-Test fehlgeschlagen für $recipient");
                 echo json_encode([
                     'error' => 'SMTP-Test fehlgeschlagen (siehe SMTP-Log)',
-                    'log_file' => APP_DATA_DIR . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'smtp.log'
+                    'log_file' => 'software_data/logs/smtp.log'
                 ]);
             }
             break;
@@ -2497,6 +2749,7 @@ function setupDatabase() {
             `password` VARCHAR(255) NOT NULL,
             `role` ENUM('user', 'admin', 'super_admin') NOT NULL DEFAULT 'user',
             `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+            `session_version` INT NOT NULL DEFAULT 1,
             `last_active_at` DATETIME NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
@@ -2518,6 +2771,11 @@ function setupDatabase() {
         if ($lastActiveColumn && $lastActiveColumn->rowCount() === 0) {
             $pdo->exec("ALTER TABLE users ADD COLUMN last_active_at DATETIME NULL AFTER is_active");
         }
+        $sessionVersionColumn = $pdo->query("SHOW COLUMNS FROM users LIKE 'session_version'");
+        if ($sessionVersionColumn && $sessionVersionColumn->rowCount() === 0) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN session_version INT NOT NULL DEFAULT 1 AFTER is_active");
+        }
+        $pdo->exec("UPDATE users SET session_version = 1 WHERE session_version IS NULL OR session_version < 1");
         $pdo->exec("UPDATE users SET is_active = 1 WHERE is_active IS NULL");
 
         // Sicherstellen, dass mindestens ein Super-Admin existiert

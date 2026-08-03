@@ -1,35 +1,147 @@
 <?php
 declare(strict_types=1);
 
+if (!function_exists('ls_default_trusted_proxy_cidrs')) {
+    function ls_default_trusted_proxy_cidrs(): array
+    {
+        return [
+            '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+            '104.16.0.0/13', '104.24.0.0/14', '108.162.192.0/18',
+            '131.0.72.0/22', '141.101.64.0/18', '162.158.0.0/15',
+            '172.64.0.0/13', '173.245.48.0/20', '188.114.96.0/20',
+            '190.93.240.0/20', '197.234.240.0/22', '198.41.128.0/17',
+            '2400:cb00::/32', '2405:b500::/32', '2405:8100::/32',
+            '2606:4700::/32', '2803:f800::/32', '2a06:98c0::/29',
+            '2c0f:f248::/32',
+        ];
+    }
+}
+
+if (!function_exists('ls_ip_in_cidr')) {
+    function ls_ip_in_cidr(string $ip, string $cidr): bool
+    {
+        $parts = explode('/', trim($cidr), 2);
+        if (count($parts) !== 2 || !filter_var($ip, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+        $network = inet_pton(trim($parts[0]));
+        $address = inet_pton($ip);
+        $prefix = filter_var($parts[1], FILTER_VALIDATE_INT);
+        if ($network === false || $address === false || $prefix === false || strlen($network) !== strlen($address)) {
+            return false;
+        }
+        $maxPrefix = strlen($address) * 8;
+        if ($prefix < 0 || $prefix > $maxPrefix) {
+            return false;
+        }
+        $fullBytes = intdiv($prefix, 8);
+        if ($fullBytes > 0 && substr($network, 0, $fullBytes) !== substr($address, 0, $fullBytes)) {
+            return false;
+        }
+        $remainingBits = $prefix % 8;
+        if ($remainingBits === 0) {
+            return true;
+        }
+        $mask = (0xff << (8 - $remainingBits)) & 0xff;
+        return (ord($network[$fullBytes]) & $mask) === (ord($address[$fullBytes]) & $mask);
+    }
+}
+
+if (!function_exists('ls_trusted_proxy_cidrs')) {
+    function ls_trusted_proxy_cidrs(): array
+    {
+        $configured = $GLOBALS['config']['trusted_proxy_cidrs'] ?? null;
+        if (is_array($configured)) {
+            $configured = array_values(array_filter(array_map('strval', $configured)));
+            if (!empty($configured)) {
+                return $configured;
+            }
+        }
+        return ls_default_trusted_proxy_cidrs();
+    }
+}
+
+if (!function_exists('ls_request_from_trusted_proxy')) {
+    function ls_request_from_trusted_proxy(): bool
+    {
+        $remote = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+        if (!filter_var($remote, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+        foreach (ls_trusted_proxy_cidrs() as $cidr) {
+            if (ls_ip_in_cidr($remote, $cidr)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
 if (!function_exists('ls_client_ip')) {
     function ls_client_ip(): string
     {
+        $trustedProxy = ls_request_from_trusted_proxy();
         $candidates = [];
 
-        $cf = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? '';
-        if (is_string($cf) && $cf !== '') {
-            $candidates[] = trim($cf);
-        }
+        if ($trustedProxy) {
+            $cf = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? '';
+            if (is_string($cf) && $cf !== '') {
+                $candidates[] = ['value' => trim($cf), 'source' => 'cf-connecting-ip'];
+            }
 
-        $xff = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
-        if (is_string($xff) && $xff !== '') {
-            $parts = array_map('trim', explode(',', $xff));
-            if (!empty($parts)) {
-                $candidates[] = $parts[0];
+            $xff = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+            if (is_string($xff) && $xff !== '') {
+                $parts = array_map('trim', explode(',', $xff));
+                foreach ($parts as $part) {
+                    if (filter_var($part, FILTER_VALIDATE_IP)) {
+                        $candidates[] = ['value' => $part, 'source' => 'x-forwarded-for'];
+                        break;
+                    }
+                }
             }
         }
 
-        $ra = $_SERVER['REMOTE_ADDR'] ?? '';
-        if (is_string($ra) && $ra !== '') {
-            $candidates[] = trim($ra);
-        }
+        $candidates[] = [
+            'value' => trim((string)($_SERVER['REMOTE_ADDR'] ?? '')),
+            'source' => 'remote_addr',
+        ];
 
-        foreach ($candidates as $ip) {
-            if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                return $ip;
+        foreach ($candidates as $candidate) {
+            if (filter_var($candidate['value'], FILTER_VALIDATE_IP)) {
+                return $candidate['value'];
             }
         }
         return '0.0.0.0';
+    }
+}
+
+if (!function_exists('ls_client_ip_source')) {
+    function ls_client_ip_source(): string
+    {
+        if (ls_request_from_trusted_proxy()) {
+            $cf = trim((string)($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
+            if (filter_var($cf, FILTER_VALIDATE_IP)) {
+                return 'cf-connecting-ip';
+            }
+            $xff = trim((string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+            if ($xff !== '') {
+                foreach (explode(',', $xff) as $part) {
+                    if (filter_var(trim($part), FILTER_VALIDATE_IP)) {
+                        return 'x-forwarded-for';
+                    }
+                }
+            }
+        }
+        return 'remote_addr';
+    }
+}
+
+if (!function_exists('ls_sanitize_uri')) {
+    function ls_sanitize_uri(string $uri): string
+    {
+        $sensitive = '(?:token|password|current_password|new_password|mail_pass|csrf_token|reset_token)';
+        $sanitized = preg_replace('/([?&]' . $sensitive . '=)[^&#]*/i', '$1[REDACTED]', $uri);
+        return is_string($sanitized) ? $sanitized : '[REDACTED_URI]';
     }
 }
 
@@ -90,12 +202,11 @@ if (!function_exists('ls_base_event')) {
             'ts' => gmdate('c'),
             'event_type' => $type,
             'ip' => ls_client_ip(),
-            'ip_source' => isset($_SERVER['HTTP_CF_CONNECTING_IP']) ? 'cf-connecting-ip'
-                : (isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? 'x-forwarded-for' : 'remote_addr'),
+            'ip_source' => ls_client_ip_source(),
             'method' => (string)($_SERVER['REQUEST_METHOD'] ?? 'GET'),
-            'uri' => (string)($_SERVER['REQUEST_URI'] ?? '/'),
+            'uri' => ls_sanitize_uri((string)($_SERVER['REQUEST_URI'] ?? '/')),
             'host' => (string)($_SERVER['HTTP_HOST'] ?? ''),
-            'referer' => (string)($_SERVER['HTTP_REFERER'] ?? ''),
+            'referer' => ls_sanitize_uri((string)($_SERVER['HTTP_REFERER'] ?? '')),
             'ua' => (string)($_SERVER['HTTP_USER_AGENT'] ?? ''),
         ];
     }
@@ -150,6 +261,7 @@ if (!function_exists('ls_auth_state_load')) {
         if (!is_file($stateFile)) {
             return [];
         }
+        @chmod($stateFile, 0600);
         $raw = @file_get_contents($stateFile);
         $decoded = json_decode((string)$raw, true);
         return is_array($decoded) ? $decoded : [];
@@ -167,7 +279,62 @@ if (!function_exists('ls_auth_state_save')) {
         if ($json === false) {
             return;
         }
-        @file_put_contents($stateFile, $json, LOCK_EX);
+        try {
+            $temporary = $stateFile . '.tmp.' . bin2hex(random_bytes(6));
+        } catch (Throwable $e) {
+            $temporary = $stateFile . '.tmp.' . str_replace('.', '', uniqid('', true));
+        }
+        if (@file_put_contents($temporary, $json, LOCK_EX) !== false) {
+            @chmod($temporary, 0600);
+            @rename($temporary, $stateFile);
+        } else {
+            @unlink($temporary);
+        }
+    }
+}
+
+if (!function_exists('ls_auth_prune_state')) {
+    function ls_auth_prune_state(array $state, int $cutoff): array
+    {
+        foreach (['posts', 'identifiers'] as $section) {
+            if (!isset($state[$section]) || !is_array($state[$section])) {
+                continue;
+            }
+            foreach ($state[$section] as $key => $value) {
+                if ($section === 'posts') {
+                    $pruned = is_array($value) ? ls_auth_prune_timestamps($value, $cutoff) : [];
+                    if (empty($pruned)) {
+                        unset($state[$section][$key]);
+                    } else {
+                        $state[$section][$key] = $pruned;
+                    }
+                    continue;
+                }
+                if (!is_array($value)) {
+                    unset($state[$section][$key]);
+                    continue;
+                }
+                foreach ($value as $identifier => $timestamps) {
+                    $pruned = is_array($timestamps) ? ls_auth_prune_timestamps($timestamps, $cutoff) : [];
+                    if (empty($pruned)) {
+                        unset($state[$section][$key][$identifier]);
+                    } else {
+                        $state[$section][$key][$identifier] = $pruned;
+                    }
+                }
+                if (empty($state[$section][$key])) {
+                    unset($state[$section][$key]);
+                }
+            }
+        }
+        if (isset($state['alerts']) && is_array($state['alerts'])) {
+            foreach ($state['alerts'] as $key => $timestamp) {
+                if (!is_int($timestamp) || $timestamp < $cutoff) {
+                    unset($state['alerts'][$key]);
+                }
+            }
+        }
+        return $state;
     }
 }
 
@@ -231,7 +398,7 @@ if (!function_exists('ls_monitor_auth_post')) {
         $ip = ls_client_ip();
         $normalizedIdentifier = ls_normalize_auth_identifier($identifier);
 
-        $state = ls_auth_state_load($stateFile);
+        $state = ls_auth_prune_state(ls_auth_state_load($stateFile), $cutoff);
         if (!isset($state['posts']) || !is_array($state['posts'])) {
             $state['posts'] = [];
         }
