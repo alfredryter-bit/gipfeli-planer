@@ -1,0 +1,57 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.code-workspace
+
+# Logs
+*.log
+logs/
+public_html/logs/
+
+# Temporary / backup files
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+*.swp
+
+# Archives and dumps
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
+*.sql
+*.sqlite
+*.sqlite3
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+**/config.php
+
+# PHP / Composer
+vendor/
+public_html/vendor/
+composer.phar
+.phpunit.result.cache
+
+# Application runtime data (outside webroot)
+software_data/*
+!software_data/.gitkeep
+!software_data/.gitignore
+!software_data/security_logger.php
+!software_data/bootstrap_hook.php
+software_data/logs/
+software_data/logs/*
+
+# Generated branding assets
+public_html/assets/logo_*
+public_html/assets/favicon_*
